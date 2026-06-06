@@ -14,14 +14,24 @@ const securityHeaders = {
 type SearchKind = "flights" | "hotels" | "cars" | "bus";
 
 const travelServices: SearchKind[] = ["flights", "hotels", "cars", "bus"];
-const routePaths: Record<SearchKind | "checkout" | "wallet" | "support", string> = {
+const routePaths: Record<SearchKind | "checkout" | "wallet" | "paymentMethods" | "payout" | "support" | "authHandoff", string> = {
   flights: "/flights",
   hotels: "/hotels",
   cars: "/cars",
   bus: "/bus",
   checkout: "/travel/checkout",
   wallet: "/wallet",
+  paymentMethods: "/payment-methods",
+  payout: "/wallet?tab=payouts",
   support: "/chat",
+  authHandoff: "/auth/handoff",
+};
+
+const quoteDefaults: Record<SearchKind, { label: string; total: number }> = {
+  flights: { label: "Phnom Penh to Siem Reap flight", total: 48 },
+  hotels: { label: "Siem Reap hotel stay", total: 126 },
+  cars: { label: "Siem Reap rental car", total: 84 },
+  bus: { label: "Phnom Penh to Siem Reap bus", total: 18 },
 };
 
 const allowedApiOrigins = new Set([
@@ -71,6 +81,14 @@ function json(request: Request, payload: unknown, status = 200) {
   });
 }
 
+function text(request: Request, body: string, contentType: string) {
+  const headers = apiHeaders(request);
+  headers.set("content-type", contentType);
+  headers.set("cache-control", "public, max-age=3600");
+
+  return new Response(body, { headers });
+}
+
 function buildHandoffUrl(requestUrl: URL, env: Env, kind: SearchKind) {
   const target = new URL(routePaths[kind], platformOrigin(env));
 
@@ -114,6 +132,49 @@ function buildHandoffUrl(requestUrl: URL, env: Env, kind: SearchKind) {
   return target.toString();
 }
 
+function buildQuote(requestUrl: URL, env: Env, kind: SearchKind) {
+  const defaults = quoteDefaults[kind];
+  const checkout = new URL(routePaths.checkout, platformOrigin(env));
+  const from = requestUrl.searchParams.get("from") || "Phnom Penh";
+  const to = requestUrl.searchParams.get("to") || "Siem Reap";
+  const start = requestUrl.searchParams.get("start") || "2026-06-15";
+  const end = requestUrl.searchParams.get("end") || "2026-06-18";
+
+  checkout.searchParams.set("product", kind);
+  checkout.searchParams.set("from", from);
+  checkout.searchParams.set("to", to);
+  checkout.searchParams.set("start", start);
+  checkout.searchParams.set("end", end);
+  checkout.searchParams.set("travelers", requestUrl.searchParams.get("travelers") || "1");
+
+  const auth = new URL(routePaths.authHandoff, platformOrigin(env));
+  auth.searchParams.set("app", "zivo-travel");
+  auth.searchParams.set("redirect", `${routePaths.checkout}?${checkout.searchParams.toString()}`);
+
+  return {
+    app: "zivo-travel",
+    mode: "quote_bridge",
+    product: kind,
+    label: defaults.label,
+    currency: "USD",
+    total: defaults.total,
+    provider: "zivosmedia",
+    checkoutUrl: checkout.toString(),
+    paymentUrl: new URL(routePaths.paymentMethods, platformOrigin(env)).toString(),
+    walletUrl: new URL(routePaths.wallet, platformOrigin(env)).toString(),
+    payoutUrl: new URL(routePaths.payout, platformOrigin(env)).toString(),
+    ssoUrl: auth.toString(),
+    steps: [
+      { label: "Search", status: "ready" },
+      { label: "Review", status: "ready" },
+      { label: "Sign in", status: "handoff" },
+      { label: "Pay", status: "handoff" },
+      { label: "Confirm", status: "handoff" },
+    ],
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -123,6 +184,26 @@ export default {
         status: 204,
         headers: apiHeaders(request),
       });
+    }
+
+    if (url.pathname === "/robots.txt") {
+      return text(
+        request,
+        ["User-agent: *", "Allow: /", "Sitemap: https://zivostravel.com/sitemap.xml", ""].join("\n"),
+        "text/plain; charset=utf-8",
+      );
+    }
+
+    if (url.pathname === "/sitemap.xml") {
+      const pages = ["", "flights", "hotels", "cars", "bus", "deals"].map(
+        (path) => `  <url><loc>https://zivostravel.com/${path}</loc></url>`,
+      );
+
+      return text(
+        request,
+        [`<?xml version="1.0" encoding="UTF-8"?>`, `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`, ...pages, `</urlset>`].join("\n"),
+        "application/xml; charset=utf-8",
+      );
     }
 
     if (url.pathname === "/api/health" || url.pathname === "/api/travel/status") {
@@ -152,6 +233,12 @@ export default {
         routes: routePaths,
         services: travelServices,
       });
+    }
+
+    if (url.pathname === "/api/travel/quote") {
+      const kind = normalizeSearchKind(url.searchParams.get("type"));
+
+      return json(request, buildQuote(url, env, kind));
     }
 
     if (url.pathname === "/api/travel/search") {

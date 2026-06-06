@@ -7,20 +7,28 @@ import {
   Bus,
   CalendarDays,
   Car,
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Circle,
   CircleUserRound,
+  CreditCard,
   Globe2,
   Headphones,
   Hotel,
+  Landmark,
+  Link2,
+  LockKeyhole,
   Plane,
+  ReceiptText,
   Repeat2,
+  Search,
   ShieldCheck,
   UserRound,
   WalletCards
 } from "lucide-react";
+import heroCardImage from "../public/assets/zivo-travel-hero-card.png";
 import bridge from "../zivo-travel-bridge.json";
 import "./styles.css";
 
@@ -37,6 +45,20 @@ type BackendStatus = {
   services?: string[];
   routes?: Partial<Record<SearchKind | "checkout" | "wallet" | "support", string>>;
   checkedAt?: string;
+};
+type QuotePayload = {
+  product: SearchKind;
+  label: string;
+  currency: string;
+  total: number;
+  provider: string;
+  mode: string;
+  checkoutUrl: string;
+  paymentUrl: string;
+  walletUrl: string;
+  payoutUrl: string;
+  ssoUrl: string;
+  steps: Array<{ label: string; status: string }>;
 };
 
 const searchTabs = [
@@ -139,6 +161,22 @@ const trustItems = [
   { title: "Flexible options", body: "Change with ease", icon: Repeat2 }
 ];
 
+const workflowTabs = searchTabs.map(({ id, label, icon }) => ({ id, label, icon }));
+
+const quoteDefaults: Record<SearchKind, { label: string; total: number }> = {
+  flights: { label: "Phnom Penh to Siem Reap flight", total: 48 },
+  hotels: { label: "Siem Reap hotel stay", total: 126 },
+  cars: { label: "Siem Reap rental car", total: 84 },
+  bus: { label: "Phnom Penh to Siem Reap bus", total: 18 }
+};
+
+const connectionItems = [
+  { label: "SSO", value: "Auth handoff", icon: LockKeyhole },
+  { label: "Payment", value: "Checkout ready", icon: CreditCard },
+  { label: "Payout", value: "Wallet ledger", icon: Landmark },
+  { label: "SEO", value: "Sitemap live", icon: Link2 }
+];
+
 function engineUrl(path: string) {
   return new URL(path, engineOrigin).toString();
 }
@@ -196,6 +234,39 @@ function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripT
   }
 
   return `/flights?${params.toString()}`;
+}
+
+function fallbackQuote(kind: SearchKind): QuotePayload {
+  const quote = quoteDefaults[kind];
+  const params = new URLSearchParams({
+    product: kind,
+    from: defaultRoute.from,
+    to: defaultRoute.to,
+    start: defaultDates.depart,
+    end: defaultDates.return,
+    travelers: "1"
+  });
+
+  return {
+    product: kind,
+    label: quote.label,
+    currency: "USD",
+    total: quote.total,
+    provider: "zivosmedia",
+    mode: "local_bridge",
+    checkoutUrl: engineUrl(`/travel/checkout?${params.toString()}`),
+    paymentUrl: engineUrl(bridge.routing.paymentMethods),
+    walletUrl: engineUrl(bridge.routing.wallet),
+    payoutUrl: engineUrl(`${bridge.routing.wallet}?tab=payouts`),
+    ssoUrl: engineUrl(`${bridge.routing.authHandoff}?app=zivo-travel&redirect=${encodeURIComponent(`/travel/checkout?${params.toString()}`)}`),
+    steps: [
+      { label: "Search", status: "ready" },
+      { label: "Review", status: "ready" },
+      { label: "Sign in", status: "handoff" },
+      { label: "Pay", status: "handoff" },
+      { label: "Confirm", status: "handoff" }
+    ]
+  };
 }
 
 function App() {
@@ -322,6 +393,8 @@ function App() {
           </article>
         ))}
       </section>
+
+      <BookingWorkflow backendStatus={backendStatus} />
     </main>
   );
 }
@@ -475,38 +548,13 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
 
 function FeatureHero() {
   return (
-    <article className="feature-card">
+    <a className="feature-card" href={engineUrl("/zivo-travel")} aria-label="Start booking with Zivo Travel">
       <img
         className="feature-image"
-        src="https://images.unsplash.com/photo-1563492065599-3520f775eeed?auto=format&fit=crop&w=1400&q=85"
-        alt="Siem Reap temple destination"
+        src={heroCardImage}
+        alt="Zivo Travel booking hero with temple, airplane, and balloons"
       />
-      <div className="feature-copy">
-        <span>Discover more.</span>
-        <strong>Live more.</strong>
-        <p>Your journey starts here.</p>
-        <a href={engineUrl("/zivo-travel")}>
-          Start booking
-          <ArrowRight size={18} />
-        </a>
-      </div>
-      <div className="cloud one" />
-      <div className="cloud two" />
-      <div className="balloon balloon-one" aria-hidden="true" />
-      <div className="balloon balloon-two" aria-hidden="true" />
-      <div className="balloon balloon-three" aria-hidden="true" />
-      <div className="plane-3d" aria-hidden="true">
-        <span />
-      </div>
-      <div className="feature-benefits">
-        {["Trusted by millions", "Flexible changes", "Earn rewards", "No hidden fees"].map((item) => (
-          <span key={item}>
-            <ShieldCheck size={15} />
-            {item}
-          </span>
-        ))}
-      </div>
-    </article>
+    </a>
   );
 }
 
@@ -599,6 +647,142 @@ function MyTrips() {
         <span />
       </div>
     </article>
+  );
+}
+
+function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const [activeKind, setActiveKind] = useState<SearchKind>("flights");
+  const [quote, setQuote] = useState<QuotePayload>(() => fallbackQuote("flights"));
+  const activeQuote = quote.product === activeKind ? quote : fallbackQuote(activeKind);
+  const connectionMode = backendStatus?.mode === "cloudflare_bridge" ? "Cloudflare bridge" : "Local bridge";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fallback = fallbackQuote(activeKind);
+    setQuote(fallback);
+
+    if (!canUseTravelApi()) {
+      return () => controller.abort();
+    }
+
+    const params = new URLSearchParams({
+      type: activeKind,
+      from: defaultRoute.from,
+      to: defaultRoute.to,
+      start: defaultDates.depart,
+      end: defaultDates.return,
+      travelers: "1"
+    });
+
+    fetch(`/api/travel/quote?${params.toString()}`, {
+      headers: { accept: "application/json" },
+      signal: controller.signal
+    })
+      .then((response) => {
+        if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+          throw new Error("Travel quote bridge unavailable");
+        }
+
+        return response.json() as Promise<QuotePayload>;
+      })
+      .then((payload) => setQuote(payload))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setQuote(fallback);
+        }
+      });
+
+    return () => controller.abort();
+  }, [activeKind]);
+
+  return (
+    <section className="workflow-band" aria-label="Booking workflow">
+      <article className="workflow-panel workflow-summary">
+        <div>
+          <span className="workflow-icon">
+            <ReceiptText size={22} />
+          </span>
+          <h2>Booking workflow</h2>
+          <p>{activeQuote.label}</p>
+        </div>
+        <div className="workflow-tabs" role="tablist" aria-label="Workflow product">
+          {workflowTabs.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={id === activeKind ? "active" : ""}
+              role="tab"
+              aria-selected={id === activeKind}
+              onClick={() => setActiveKind(id)}
+            >
+              <Icon size={18} />
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="quote-row">
+          <span>Estimate</span>
+          <strong>
+            {activeQuote.currency} ${activeQuote.total}
+          </strong>
+        </div>
+        <a className="checkout-link" href={activeQuote.checkoutUrl}>
+          Continue checkout
+          <ArrowRight size={18} />
+        </a>
+      </article>
+
+      <article className="workflow-panel">
+        <div className="workflow-headline">
+          <Search size={21} />
+          <div>
+            <h2>Trip flow</h2>
+            <p>{connectionMode}</p>
+          </div>
+        </div>
+        <div className="step-chain">
+          {activeQuote.steps.map((step, index) => (
+            <div key={step.label} className={index < 2 ? "complete" : ""}>
+              <span>
+                <CheckCircle2 size={16} />
+              </span>
+              <strong>{step.label}</strong>
+              <small>{step.status}</small>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="workflow-panel connection-panel">
+        <div className="workflow-headline">
+          <Link2 size={21} />
+          <div>
+            <h2>Connections</h2>
+            <p>{activeQuote.provider}</p>
+          </div>
+        </div>
+        <div className="connection-grid">
+          {connectionItems.map(({ label, value, icon: Icon }) => (
+            <a
+              key={label}
+              href={
+                label === "SSO"
+                  ? activeQuote.ssoUrl
+                  : label === "Payment"
+                    ? activeQuote.paymentUrl
+                    : label === "Payout"
+                      ? activeQuote.payoutUrl
+                      : "/sitemap.xml"
+              }
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </a>
+          ))}
+        </div>
+      </article>
+    </section>
   );
 }
 
