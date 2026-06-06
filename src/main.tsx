@@ -55,6 +55,7 @@ type BackendStatus = {
   dedicatedBackendEnabled?: boolean;
   bookingPersistence?: string;
   searchTelemetry?: string;
+  supportPersistence?: string;
   adminQueue?: string;
   walletSummary?: string;
   services?: string[];
@@ -374,6 +375,39 @@ const routes = [
     to: "Japan",
     price: 799,
     image: routeTokyoImage
+  }
+];
+
+const defaultTripSlides = [
+  {
+    title: "Phnom Penh → Siem Reap",
+    meta: "Jun 15 – Jun 18, 2026 • 1 Traveler",
+    service: "Flight",
+    secondary: "Hotel",
+    status: "Upcoming",
+    image: tripBeachImage,
+    href: "/trips",
+    icon: Plane
+  },
+  {
+    title: "Tokyo spring escape",
+    meta: "Flexible dates • Bundle ready",
+    service: "Flight",
+    secondary: "Hotel",
+    status: "Saved idea",
+    image: routeTokyoImage,
+    href: "/deals",
+    icon: Plane
+  },
+  {
+    title: "Siem Reap city stay",
+    meta: "Hotel + airport pickup",
+    service: "Hotel",
+    secondary: "Rental car",
+    status: "Bundle",
+    image: routePhnomPenhImage,
+    href: "/hotels",
+    icon: Hotel
   }
 ];
 
@@ -1800,6 +1834,10 @@ function App() {
   const walletRoute = isWalletRoute();
   const supportRoute = isSupportRoute();
   const path = currentPath();
+  const handoffSource = new URLSearchParams(window.location.search).get("source");
+  const isConnectedHandoff = handoffSource === "zivosmedia" || handoffSource === "zivo-admin";
+  const zivoAdminUrl = (import.meta.env.VITE_ZIVO_ADMIN_URL as string) || "https://admin.zivosmedia.com";
+  const zivosmediaUrl = (import.meta.env.VITE_ZIVOSMEDIA_URL as string) || "https://zivosmedia.com";
 
   useEffect(() => {
     let cancelled = false;
@@ -1924,6 +1962,16 @@ function App() {
   return (
     <CurrencyContext.Provider value={{ currency, setCurrency }}>
       <main className="travel-page">
+      {isConnectedHandoff && (
+        <div role="region" aria-label="Connected workflow from ZivosMedia" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, margin: "12px 16px", padding: "10px 14px", borderRadius: 12, background: "linear-gradient(90deg,#eef5ff,#e6f0ff)", border: "1px solid #cfe0ff", color: "#07162c" }}>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>Connected from ZivosMedia · booking</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <a href={zivosmediaUrl} style={{ display: "inline-flex", alignItems: "center", padding: "8px 12px", borderRadius: 10, background: "#ffffff", border: "1px solid #cfe0ff", color: "#075af2", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>Return to ZivosMedia</a>
+          <a href={`${zivoAdminUrl}/#travel-ops`} style={{ display: "inline-flex", alignItems: "center", padding: "8px 12px", borderRadius: 10, background: "#ffffff", border: "1px solid #cfe0ff", color: "#075af2", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>Open Zivo Admin queue</a>
+          <a href={localUrl("/trips")} style={{ display: "inline-flex", alignItems: "center", padding: "8px 12px", borderRadius: 10, background: "linear-gradient(180deg,#126bff,#064ce8)", border: "1px solid #064ce8", color: "#ffffff", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>Continue booking</a>
+        </div>
+      </div>
+      )}
       <header className="topbar" aria-label="Zivo Travel navigation">
         <a className="brand" href={localUrl("/")} aria-label="Zivo Travel home">
           <span className="brand-mark">Z</span>
@@ -2639,7 +2687,29 @@ function BuildTrip() {
 
 function MyTrips() {
   const [trips, setTrips] = useState<SavedTrip[]>(() => readSavedTrips());
-  const latestTrip = trips[0];
+  const [activeSlide, setActiveSlide] = useState(0);
+  const tripSlides = useMemo(
+    () => [
+      ...trips.slice(0, 3).map((trip) => {
+        const Icon = serviceIcon(trip.serviceType);
+
+        return {
+          title: trip.resultTitle,
+          meta: `${trip.bookingReference} • ${trip.traveler?.name || trip.status}`,
+          service: serviceLabel(trip.serviceType),
+          secondary: trip.persisted ? "Synced" : "Preview",
+          status: trip.persisted ? "Confirmed" : "Resume",
+          image: trip.serviceType === "hotels" ? tripBeachImage : trip.serviceType === "bus" ? routePhnomPenhImage : routeTokyoImage,
+          href: trip.reviewUrl || "/trips",
+          icon: Icon
+        };
+      }),
+      ...defaultTripSlides
+    ],
+    [trips]
+  );
+  const currentSlide = tripSlides[activeSlide] || tripSlides[0];
+  const PreviewIcon = currentSlide.icon;
 
   useEffect(() => {
     function refresh() {
@@ -2655,39 +2725,53 @@ function MyTrips() {
     };
   }, []);
 
-  const PreviewIcon = latestTrip ? serviceIcon(latestTrip.serviceType) : Plane;
+  useEffect(() => {
+    if (activeSlide >= tripSlides.length) {
+      setActiveSlide(0);
+    }
+  }, [activeSlide, tripSlides.length]);
+
+  function showPreviousTrip() {
+    setActiveSlide((index) => (index === 0 ? tripSlides.length - 1 : index - 1));
+  }
+
+  function showNextTrip() {
+    setActiveSlide((index) => (index + 1) % tripSlides.length);
+  }
 
   return (
     <article className="mytrip-card">
-      <SectionHeader title="My trips" href="/trips" />
+      <SectionHeader title="My trips" href="/trips" onPrevious={showPreviousTrip} onNext={showNextTrip} />
       <div className="trip-preview">
-        <img src={tripBeachImage} alt="Beach trip" />
-        <span>Upcoming</span>
+        <img src={currentSlide.image} alt={currentSlide.title} />
+        <span>{currentSlide.status}</span>
       </div>
       <div className="trip-details">
-        <strong>{latestTrip?.resultTitle || "Phnom Penh → Siem Reap"}</strong>
-        <small>
-          {latestTrip
-            ? `${latestTrip.bookingReference} • ${latestTrip.traveler?.name || latestTrip.status}`
-            : "Jun 15 – Jun 18, 2026 • 1 Traveler"}
-        </small>
+        <strong>{currentSlide.title}</strong>
+        <small>{currentSlide.meta}</small>
         <div>
           <span>
             <PreviewIcon size={15} />
-            {latestTrip ? serviceLabel(latestTrip.serviceType) : "Flight"}
+            {currentSlide.service}
           </span>
-          <a href={localUrl(latestTrip?.reviewUrl || "/trips")}>View details</a>
+          <a href={localUrl(currentSlide.href)}>View details</a>
         </div>
         <span>
           <Hotel size={15} />
-          Hotel
+          {currentSlide.secondary}
         </span>
       </div>
-      <div className="pager" aria-hidden="true">
-        <span className="active" />
-        <span />
-        <span />
-        <span />
+      <div className="pager" aria-label="Trip preview pages">
+        {tripSlides.map((slide, index) => (
+          <button
+            key={`${slide.title}-${index}`}
+            type="button"
+            className={index === activeSlide ? "active" : ""}
+            aria-label={`Show ${slide.title}`}
+            aria-current={index === activeSlide ? "true" : undefined}
+            onClick={() => setActiveSlide(index)}
+          />
+        ))}
       </div>
     </article>
   );
@@ -3219,19 +3303,23 @@ function supportReasonLabel(response: SupportTicketResponse | null) {
     return "Ready for travel support";
   }
 
-  if (response.reason === "missing_supabase_service_role_secret") {
-    return "Waiting for support table secret";
+  if (response.reason === "missing_supabase_service_role_secret" || response.reason === "missing_supabase_write_key") {
+    return "Waiting for support table key";
   }
 
   if (response.reason === "missing_support_persistence") {
     return "Preview saved for chat handoff";
   }
 
+  if (response.reason === "supabase_support_insert_failed") {
+    return "Preview saved after sync issue";
+  }
+
   if (response.reason === "local_preview") {
     return "Saved in this browser";
   }
 
-  return response.reason ? formatMode(response.reason) : "Support draft ready";
+  return response.persisted ? "Support ticket synced" : response.reason ? formatMode(response.reason) : "Support draft ready";
 }
 
 function SupportPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
@@ -3243,7 +3331,12 @@ function SupportPage({ backendStatus }: { backendStatus: BackendStatus | null })
   const activeTopic = supportTopics.find((topic) => topic.id === form.topic) || supportTopics[0];
   const TopicIcon = activeTopic.icon;
   const latestTicket = lastResponse?.ticket || tickets[0] || null;
-  const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+  const bridgeLabel =
+    backendStatus?.supportPersistence === "supabase_insert" || backendStatus?.supportPersistence === "supabase"
+      ? "Support sync ready"
+      : backendStatus?.mode === "cloudflare_bridge"
+        ? "Live bridge"
+        : "Local preview";
   const supportLabel = lastResponse
     ? lastResponse.persisted
       ? "Supabase ticket"
@@ -4447,16 +4540,26 @@ function Field({
   );
 }
 
-function SectionHeader({ title, href = searchTabs[0].href }: { title: string; href?: string }) {
+function SectionHeader({
+  title,
+  href = searchTabs[0].href,
+  onPrevious,
+  onNext
+}: {
+  title: string;
+  href?: string;
+  onPrevious?: () => void;
+  onNext?: () => void;
+}) {
   return (
     <div className="section-head">
       <h2>{title}</h2>
       <div>
         <a href={localUrl(href)}>View all</a>
-        <button aria-label="Previous">
+        <button type="button" aria-label="Previous" onClick={onPrevious}>
           <ChevronLeft size={16} />
         </button>
-        <button aria-label="Next">
+        <button type="button" aria-label="Next" onClick={onNext}>
           <ChevronRight size={16} />
         </button>
       </div>

@@ -99,3 +99,10 @@ persisted intent by reference.
 `/api/travel/results` writes each live flight, hotel, rental car, and bus search to
 `public.zivo_travel_search_events` in the dedicated Travel project. The table uses RLS so anonymous customers can insert
 search telemetry, while customer reads stay owner-scoped.
+
+## Support Ticket Persistence
+
+`/api/travel/support` creates a `zts_...` support reference and writes customer support drafts to
+`public.zivo_travel_support_tickets` before the Zivos Media chat handoff. Public customers can insert constrained ticket
+drafts through the Cloudflare bridge; reads stay owner-scoped for authenticated customers and service-role only for future
+admin queues.

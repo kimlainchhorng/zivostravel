@@ -1325,14 +1325,16 @@ button {
   margin-top: 9px;
 }
 
-.pager span {
+.pager button {
   width: 18px;
   height: 6px;
+  border: 0;
   border-radius: 999px;
   background: #d5e0ec;
+  cursor: pointer;
 }
 
-.pager span.active {
+.pager button.active {
   background: #075af2;
 }
 
@@ -3911,13 +3913,13 @@ button {
   }
 
   .hero-layout {
-    grid-template-columns: minmax(0, 1.04fr) minmax(0, 0.96fr);
-    gap: 14px;
+    grid-template-columns: 1fr;
+    gap: 18px;
   }
 
   .search-panel {
-    height: 424px;
-    min-height: 424px;
+    height: auto;
+    min-height: 0;
     border-radius: 32px;
   }
 
@@ -3932,7 +3934,7 @@ button {
 
   .search-panel {
     padding: 22px 22px 18px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .search-panel h1 {
@@ -4315,6 +4317,23 @@ button {
 
   .support-form {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 1000px) and (max-width: 1180px) {
+  .hero-layout {
+    grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.02fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  .search-panel {
+    height: auto;
+    min-height: 0;
+  }
+
+  .feature-card {
+    margin-top: 18px;
   }
 }
 

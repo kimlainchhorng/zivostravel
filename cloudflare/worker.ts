@@ -61,6 +61,21 @@ type WalletSummary = {
   };
   checkedAt: string;
 };
+type SupportTicketRow = Record<string, unknown> & {
+  reference: string;
+  status: string;
+  topic: SupportTopic;
+  priority: string;
+  customer_name: string;
+  customer_email: string | null;
+  booking_reference: string | null;
+  summary: string;
+  chat_url: string;
+  source_host: string;
+  request_payload: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at?: string;
+};
 type ResultTemplate = {
   id: string;
   title: string;
@@ -869,6 +884,36 @@ function bookingResponseFromRow(row: Record<string, unknown>, mode: string, pers
   };
 }
 
+function supportTicketFromRow(row: Record<string, unknown>) {
+  return {
+    reference: row.reference,
+    status: row.status,
+    topic: row.topic,
+    priority: row.priority,
+    summary: row.summary,
+    customer: row.customer_name || row.customer,
+    bookingReference: row.booking_reference || undefined,
+    chatUrl: row.chat_url,
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+function supportResponseFromRow(
+  row: Record<string, unknown>,
+  mode: string,
+  persisted: boolean,
+  reason?: string,
+) {
+  return {
+    app: "zivo-travel",
+    mode,
+    persisted,
+    ...(reason ? { reason } : {}),
+    ticket: supportTicketFromRow(row),
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 async function createBookingIntent(request: Request, requestUrl: URL, env: Env) {
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const bodyType = typeof body.type === "string" ? body.type : null;
@@ -981,37 +1026,102 @@ async function findBookingIntent(requestUrl: URL, env: Env) {
   };
 }
 
-async function createSupportTicket(request: Request, env: Env) {
-  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-  const topic = normalizeSupportTopic(body.topic);
+function buildSupportTicketRow(
+  requestUrl: URL,
+  env: Env,
+  topic: SupportTopic,
+  body: Record<string, unknown>,
+): SupportTicketRow {
   const reference = createSupportReference();
   const origin = platformOrigin(env);
   const chat = new URL(routePaths.support, origin);
   const name = cleanText(body.name, "Guest Traveler", 120);
+  const email = cleanText(body.email, "", 180);
   const summary = cleanText(body.message, "Please help me with my Zivo Travel booking.", 520);
   const bookingReference = cleanText(body.bookingReference, "", 80);
+  const priority = supportPriority(topic);
 
   chat.searchParams.set("app", "zivo-travel");
   chat.searchParams.set("ticket", reference);
 
   return {
-    app: "zivo-travel",
-    mode: "support_bridge_preview",
-    persisted: false,
-    reason: "missing_support_persistence",
-    ticket: {
-      reference,
-      status: "preview",
+    reference,
+    status: "open",
+    topic,
+    priority,
+    customer_name: name,
+    customer_email: email || null,
+    booking_reference: bookingReference || null,
+    summary,
+    chat_url: chat.toString(),
+    source_host: requestUrl.host,
+    request_payload: {
       topic,
-      priority: supportPriority(topic),
-      summary,
-      customer: name,
-      bookingReference: bookingReference || undefined,
-      chatUrl: chat.toString(),
-      createdAt: new Date().toISOString(),
+      name,
+      email: email || null,
+      bookingReference: bookingReference || null,
+      message: summary,
     },
-    checkedAt: new Date().toISOString(),
+    metadata: {
+      app: "zivo-travel",
+      bridge: "cloudflare",
+      authority: "zivosmedia",
+      supportUrl: chat.toString(),
+    },
   };
+}
+
+async function createSupportTicket(request: Request, env: Env) {
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const requestUrl = new URL(request.url);
+  const topic = normalizeSupportTopic(body.topic);
+  const row = buildSupportTicketRow(requestUrl, env, topic, body);
+  const supabaseUrl = travelSupabaseUrl(env);
+  const privateKey = privilegedSupabaseKey(env);
+  const writeKey = writeSupabaseKey(env);
+
+  if (!supabaseUrl || !writeKey) {
+    return supportResponseFromRow(row, "support_bridge_preview", false, "missing_supabase_write_key");
+  }
+
+  const canReadInsertedRow = Boolean(privateKey);
+  const endpoint = canReadInsertedRow
+    ? `${supabaseUrl}/rest/v1/zivo_travel_support_tickets?select=reference,status,topic,priority,customer_name,booking_reference,summary,chat_url,created_at`
+    : `${supabaseUrl}/rest/v1/zivo_travel_support_tickets`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: supabaseApiHeaders(writeKey, {
+      "content-type": "application/json",
+      prefer: canReadInsertedRow ? "return=representation" : "return=minimal",
+    }),
+    body: JSON.stringify(row),
+  });
+
+  if (!response.ok) {
+    return {
+      ...supportResponseFromRow(row, "support_bridge_preview", false, "supabase_support_insert_failed"),
+      supabaseStatus: response.status,
+    };
+  }
+
+  if (!canReadInsertedRow) {
+    return supportResponseFromRow(row, "supabase_public_support_ticket", true);
+  }
+
+  const records = await response.json() as Array<Record<string, unknown>>;
+  return supportResponseFromRow(records[0] || row, "supabase_support_ticket", true);
+}
+
+function supportPersistenceMode(env: Env) {
+  if (privilegedSupabaseKey(env)) {
+    return "supabase";
+  }
+
+  if (writeSupabaseKey(env)) {
+    return "supabase_insert";
+  }
+
+  return "preview";
 }
 
 export default {
@@ -1058,6 +1168,7 @@ export default {
         dedicatedBackendEnabled: hasWriteSupabaseKey,
         bookingPersistence: hasPrivateSupabaseKey ? "supabase" : hasWriteSupabaseKey ? "supabase_insert" : "preview",
         searchTelemetry: hasWriteSupabaseKey ? "supabase_insert" : "preview",
+        supportPersistence: supportPersistenceMode(env),
         adminQueue: hasPrivateSupabaseKey ? "supabase_rpc" : "preview",
         walletSummary: hasPrivateSupabaseKey ? "bridge_ready" : "preview",
         services: travelServices,
@@ -1107,12 +1218,15 @@ export default {
 
     if (url.pathname === "/api/travel/support") {
       if (request.method === "GET") {
+        const supportPersistence = supportPersistenceMode(env);
+
         return json(request, {
           app: "zivo-travel",
-          mode: "support_bridge",
-          persisted: false,
-          reason: "missing_support_persistence",
+          mode: supportPersistence === "preview" ? "support_bridge_preview" : "support_bridge",
+          persisted: supportPersistence !== "preview",
+          reason: supportPersistence === "preview" ? "missing_supabase_write_key" : undefined,
           provider: "zivosmedia",
+          supportPersistence,
           topics: ["booking", "payment", "wallet", "change"],
           supportUrl: new URL(routePaths.support, platformOrigin(env)).toString(),
           checkedAt: new Date().toISOString(),

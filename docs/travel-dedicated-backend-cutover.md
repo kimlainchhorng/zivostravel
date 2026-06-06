@@ -13,7 +13,7 @@ The Travel project is active, but it is not yet the live booking authority.
 Live Travel Supabase state:
 
 - Migration: `zivo_travel_backend_foundation`
-- Tables: `zivo_travel_backend_links`, `zivo_travel_service_catalog`, `zivo_travel_search_events`, `zivo_travel_partner_workflows`, `zivo_travel_sync_runs`
+- Tables: `zivo_travel_backend_links`, `zivo_travel_service_catalog`, `zivo_travel_search_events`, `zivo_travel_support_tickets`, `zivo_travel_partner_workflows`, `zivo_travel_sync_runs`
 - ZivosMedia aggregation RPC: `public.zivo_travel_share_summary(p_user_id uuid, p_limit integer)`
 - Edge Functions: none
 - Storage buckets: none
@@ -22,7 +22,7 @@ Current mode:
 
 - `zivostravel.com` can host the standalone customer travel shell.
 - `zivosmedia.com` remains the live authority for auth, checkout, wallet, payment, and booking records.
-- Travel Supabase currently owns telemetry/config/staged migration data.
+- Travel Supabase currently owns telemetry, support ticket drafts, config, and staged migration data.
 
 ## Product Ownership
 
