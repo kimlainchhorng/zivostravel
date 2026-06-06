@@ -1027,6 +1027,8 @@ function fallbackQuote(kind: SearchKind): QuotePayload {
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const [savedTripCount, setSavedTripCount] = useState(() => readSavedTrips().length);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const routeKind = currentRouteKind();
   const reviewKind = currentReviewKind();
   const tripsRoute = isTripsRoute();
@@ -1081,6 +1083,20 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    function refreshTrips() {
+      setSavedTripCount(readSavedTrips().length);
+    }
+
+    window.addEventListener(savedTripsEvent, refreshTrips);
+    window.addEventListener("storage", refreshTrips);
+
+    return () => {
+      window.removeEventListener(savedTripsEvent, refreshTrips);
+      window.removeEventListener("storage", refreshTrips);
+    };
+  }, []);
+
   return (
     <main className="travel-page">
       <header className="topbar" aria-label="Zivo Travel navigation">
@@ -1122,6 +1138,7 @@ function App() {
           >
             <UserRound size={16} />
             My trips
+            {savedTripCount ? <span className="pill-count">{savedTripCount}</span> : null}
           </a>
           <a className="pill" href={engineUrl(bridge.routing.wallet)}>
             <WalletCards size={16} />
@@ -1131,8 +1148,16 @@ function App() {
             <Circle size={15} />
             Support
           </a>
-          <button className="icon-btn" aria-label="Notifications">
+          <button
+            className={`icon-btn ${notificationsOpen ? "active" : ""}`}
+            type="button"
+            aria-label="Notifications"
+            aria-expanded={notificationsOpen}
+            aria-controls="travel-notifications"
+            onClick={() => setNotificationsOpen((open) => !open)}
+          >
             <Bell size={18} />
+            <span className="notification-dot" />
           </button>
           <a className="avatar" href={engineUrl("/profile")} aria-label="Profile">
             <img
@@ -1140,6 +1165,32 @@ function App() {
               alt="Traveler profile"
             />
           </a>
+          {notificationsOpen ? (
+            <div id="travel-notifications" className="notification-panel" role="status">
+              <strong>Travel updates</strong>
+              <a href={localUrl("/trips")}>
+                <ReceiptText size={17} />
+                <span>
+                  <b>{savedTripCount || "No"} saved drafts</b>
+                  <small>{savedTripCount ? "Ready to resume checkout" : "Create a draft from any result"}</small>
+                </span>
+              </a>
+              <a href={localUrl("/deals")}>
+                <WalletCards size={17} />
+                <span>
+                  <b>3 bundle deals</b>
+                  <small>Flight, hotel, car, and bus packages</small>
+                </span>
+              </a>
+              <a href={engineUrl(bridge.routing.wallet)}>
+                <ShieldCheck size={17} />
+                <span>
+                  <b>{backendStatus?.mode === "cloudflare_bridge" ? "Live backend" : "Local preview"}</b>
+                  <small>Payments and wallet hand off to Zivos Media</small>
+                </span>
+              </a>
+            </div>
+          ) : null}
         </div>
       </header>
 
