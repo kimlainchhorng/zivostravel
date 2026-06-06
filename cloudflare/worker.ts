@@ -13,6 +13,12 @@ const securityHeaders = {
 };
 
 type SearchKind = "flights" | "hotels" | "cars" | "bus";
+type TravelerDetails = {
+  name: string;
+  email: string;
+  phone: string;
+  preference: string;
+};
 type ResultTemplate = {
   id: string;
   title: string;
@@ -94,6 +100,34 @@ function serviceType(kind: SearchKind) {
   if (kind === "hotels") return "hotel";
   if (kind === "cars") return "rental_car";
   return "bus";
+}
+
+function cleanText(value: unknown, fallback = "", maxLength = 160) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) || fallback : fallback;
+}
+
+function sanitizeTraveler(value: unknown): TravelerDetails | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const input = value as Record<string, unknown>;
+  const name = cleanText(input.name, "Guest Traveler", 120);
+  const email = cleanText(input.email, "", 180);
+  const phone = cleanText(input.phone, "", 40);
+  const preference = cleanText(input.preference, "Flexible timing", 180);
+
+  return { name, email, phone, preference };
+}
+
+function travelerFromRow(row: Record<string, unknown>) {
+  const payload = row.request_payload;
+
+  if (!payload || typeof payload !== "object") {
+    return undefined;
+  }
+
+  return sanitizeTraveler((payload as Record<string, unknown>).traveler);
 }
 
 function createBookingReference() {
@@ -333,7 +367,13 @@ function buildReviewSession(requestUrl: URL, env: Env, kind: SearchKind) {
   };
 }
 
-function buildBookingRow(requestUrl: URL, env: Env, kind: SearchKind, resultId?: string) {
+function buildBookingRow(
+  requestUrl: URL,
+  env: Env,
+  kind: SearchKind,
+  resultId?: string,
+  body?: Record<string, unknown>,
+) {
   const result = resultCatalog[kind].find((item) => item.id === resultId) || resultCatalog[kind][0];
   const serviceFee = Math.max(3, Math.round(result.price * 0.08));
   const bookingReference = createBookingReference();
@@ -341,6 +381,7 @@ function buildBookingRow(requestUrl: URL, env: Env, kind: SearchKind, resultId?:
   const reviewUrl = withBookingReference(buildReviewUrl(requestUrl, kind, result.id), bookingReference);
   const auth = new URL(routePaths.authHandoff, platformOrigin(env));
   const travelers = Number.parseInt(requestUrl.searchParams.get("travelers") || "1", 10);
+  const traveler = sanitizeTraveler(body?.traveler);
 
   auth.searchParams.set("app", "zivo-travel");
   auth.searchParams.set("redirect", new URL(checkoutUrl).pathname + new URL(checkoutUrl).search);
@@ -370,6 +411,7 @@ function buildBookingRow(requestUrl: URL, env: Env, kind: SearchKind, resultId?:
       product: kind,
       query: Object.fromEntries(requestUrl.searchParams),
       result,
+      traveler,
     },
     checkout_payload: {
       checkoutUrl,
@@ -381,6 +423,7 @@ function buildBookingRow(requestUrl: URL, env: Env, kind: SearchKind, resultId?:
       app: "zivo-travel",
       bridge: "cloudflare",
       authority: "zivosmedia",
+      travelerReady: Boolean(traveler),
     },
   };
 }
@@ -402,6 +445,7 @@ function bookingRecordFromRow(row: Record<string, unknown>) {
     checkoutUrl: row.checkout_url,
     ssoUrl: row.sso_url,
     createdAt: row.created_at || null,
+    traveler: travelerFromRow(row),
   };
 }
 
@@ -421,7 +465,7 @@ async function createBookingIntent(request: Request, requestUrl: URL, env: Env) 
   const bodyResult = typeof body.resultId === "string" ? body.resultId : null;
   const kind = normalizeSearchKind(requestUrl.searchParams.get("type") || bodyType);
   const resultId = requestUrl.searchParams.get("result") || bodyResult || undefined;
-  const row = buildBookingRow(requestUrl, env, kind, resultId);
+  const row = buildBookingRow(requestUrl, env, kind, resultId, body);
 
   if (!env.ZIVO_TRAVEL_SUPABASE_URL || !env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY) {
     return {

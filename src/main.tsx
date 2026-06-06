@@ -134,6 +134,7 @@ type BookingRecord = {
   checkoutUrl: string;
   ssoUrl: string;
   createdAt: string | null;
+  traveler?: TravelerDetails;
 };
 type BookingIntentResponse = {
   mode: string;
@@ -146,6 +147,24 @@ type SavedTrip = BookingRecord & {
   persisted: boolean;
   reason?: string;
   savedAt: string;
+};
+type TravelerDetails = {
+  name: string;
+  email: string;
+  phone: string;
+  preference: string;
+};
+type DealPackage = {
+  id: string;
+  title: string;
+  body: string;
+  price: number;
+  save: string;
+  highlight: string;
+  image: string;
+  services: SearchKind[];
+  reviewKind: SearchKind;
+  resultId: string;
 };
 
 const searchTabs = [
@@ -262,6 +281,45 @@ const connectionItems = [
   { label: "Payment", value: "Checkout ready", icon: CreditCard },
   { label: "Payout", value: "Wallet ledger", icon: Landmark },
   { label: "SEO", value: "Sitemap live", icon: Link2 }
+];
+
+const dealPackages: DealPackage[] = [
+  {
+    id: "angkor-flight-hotel",
+    title: "Angkor weekend bundle",
+    body: "Flight + hotel for a three-night Siem Reap escape with flexible change support.",
+    price: 168,
+    save: "Save $28",
+    highlight: "Best starter trip",
+    image: routePhnomPenhImage,
+    services: ["flights", "hotels"],
+    reviewKind: "flights",
+    resultId: "flight-angkor-direct"
+  },
+  {
+    id: "city-stay-driver",
+    title: "Stay + private driver",
+    body: "Hotel, airport pickup, and a private day route for customers who want easy arrival.",
+    price: 188,
+    save: "Save $34",
+    highlight: "Most comfortable",
+    image: tripBeachImage,
+    services: ["hotels", "cars"],
+    reviewKind: "hotels",
+    resultId: "hotel-temple-garden"
+  },
+  {
+    id: "budget-bus-hotel",
+    title: "Budget bus + hotel",
+    body: "Reserved bus seat and smart hotel stay for travelers who want the lowest total.",
+    price: 116,
+    save: "Save $18",
+    highlight: "Lowest price",
+    image: routeTokyoImage,
+    services: ["bus", "hotels"],
+    reviewKind: "bus",
+    resultId: "bus-express"
+  }
 ];
 
 const resultCatalog: Record<SearchKind, Omit<ResultItem, "checkoutUrl">[]> = {
@@ -454,6 +512,14 @@ function isTripsRoute() {
   return window.location.pathname === "/trips" || window.location.pathname === "/my-trips";
 }
 
+function isDealsRoute() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.location.pathname === "/deals";
+}
+
 function canUseTravelApi() {
   if (typeof window === "undefined") {
     return false;
@@ -621,8 +687,44 @@ function serviceType(kind: SearchKind) {
   return "bus";
 }
 
-function localBookingIntent(session: ReviewSession, kind: SearchKind): BookingIntentResponse {
+const defaultTravelerDetails: TravelerDetails = {
+  name: "Guest Traveler",
+  email: "",
+  phone: "",
+  preference: "Flexible timing"
+};
+
+function sanitizeTravelerDetails(value: Partial<TravelerDetails> | null | undefined): TravelerDetails {
+  const name = typeof value?.name === "string" ? value.name.trim() : "";
+  const email = typeof value?.email === "string" ? value.email.trim() : "";
+  const phone = typeof value?.phone === "string" ? value.phone.trim() : "";
+  const preference = typeof value?.preference === "string" ? value.preference.trim() : "";
+
+  return {
+    name: name || defaultTravelerDetails.name,
+    email,
+    phone,
+    preference: preference || defaultTravelerDetails.preference
+  };
+}
+
+function travelerSummary(traveler?: TravelerDetails) {
+  if (!traveler) {
+    return "Traveler details pending";
+  }
+
+  const contacts = [traveler.email, traveler.phone].filter(Boolean);
+
+  return contacts.length ? `${traveler.name} • ${contacts.join(" • ")}` : traveler.name;
+}
+
+function localBookingIntent(
+  session: ReviewSession,
+  kind: SearchKind,
+  traveler: TravelerDetails = defaultTravelerDetails
+): BookingIntentResponse {
   const bookingReference = localBookingReference();
+  const travelerDetails = sanitizeTravelerDetails(traveler);
 
   return {
     mode: "local_booking_preview",
@@ -642,7 +744,8 @@ function localBookingIntent(session: ReviewSession, kind: SearchKind): BookingIn
       reviewUrl: withBookingReference(session.reviewUrl, bookingReference),
       checkoutUrl: withBookingReference(session.checkoutUrl, bookingReference),
       ssoUrl: withBookingReference(session.ssoUrl, bookingReference),
-      createdAt: null
+      createdAt: null,
+      traveler: travelerDetails
     },
     reason: "local_preview"
   };
@@ -679,6 +782,7 @@ function normalizeSavedTrip(value: unknown): SavedTrip | null {
     checkoutUrl: trip.checkoutUrl,
     ssoUrl: trip.ssoUrl || engineUrl(bridge.routing.authHandoff),
     createdAt: trip.createdAt || null,
+    traveler: sanitizeTravelerDetails(trip.traveler),
     mode: trip.mode || "local_booking_preview",
     persisted: Boolean(trip.persisted),
     reason: trip.reason,
@@ -712,9 +816,10 @@ function writeSavedTrips(trips: SavedTrip[]) {
   window.dispatchEvent(new Event(savedTripsEvent));
 }
 
-function saveBookingIntent(intent: BookingIntentResponse) {
+function saveBookingIntent(intent: BookingIntentResponse, traveler?: TravelerDetails) {
   const saved: SavedTrip = {
     ...intent.booking,
+    traveler: sanitizeTravelerDetails(traveler || intent.booking.traveler),
     mode: intent.mode,
     persisted: intent.persisted,
     reason: intent.reason,
@@ -833,6 +938,7 @@ function App() {
   const routeKind = currentRouteKind();
   const reviewKind = currentReviewKind();
   const tripsRoute = isTripsRoute();
+  const dealsRoute = isDealsRoute();
 
   useEffect(() => {
     let cancelled = false;
@@ -931,7 +1037,9 @@ function App() {
         </div>
       </header>
 
-      {tripsRoute ? (
+      {dealsRoute ? (
+        <DealsPage backendStatus={backendStatus} />
+      ) : tripsRoute ? (
         <TripsPage backendStatus={backendStatus} />
       ) : reviewKind ? (
         <BookingReview kind={reviewKind} backendStatus={backendStatus} />
@@ -1222,7 +1330,7 @@ function MyTrips() {
         <strong>{latestTrip?.resultTitle || "Phnom Penh → Siem Reap"}</strong>
         <small>
           {latestTrip
-            ? `${latestTrip.bookingReference} • ${latestTrip.status}`
+            ? `${latestTrip.bookingReference} • ${latestTrip.traveler?.name || latestTrip.status}`
             : "Jun 15 – Jun 18, 2026 • 1 Traveler"}
         </small>
         <div>
@@ -1244,6 +1352,87 @@ function MyTrips() {
         <span />
       </div>
     </article>
+  );
+}
+
+function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+
+  return (
+    <section className="deals-page" aria-label="Zivo Travel deals">
+      <div className="deals-hero">
+        <div>
+          <a className="back-link" href={localUrl("/")}>
+            <ChevronLeft size={17} />
+            Search
+          </a>
+          <span className="results-icon">
+            <WalletCards size={25} />
+          </span>
+          <h1>Bundle deals</h1>
+          <p>Combine flights, hotels, rental cars, and buses into one easier booking path.</p>
+        </div>
+        <div className="review-status">
+          <span>{bridgeLabel}</span>
+          <strong>Package pricing</strong>
+          <small>3 ready deals</small>
+        </div>
+      </div>
+
+      <div className="deals-grid">
+        {dealPackages.map((deal) => (
+          <article key={deal.id} className="deal-card">
+            <div className="deal-image">
+              <img src={deal.image} alt={deal.title} />
+              <span>{deal.highlight}</span>
+            </div>
+            <div className="deal-body">
+              <div>
+                <span className="provider">{deal.save}</span>
+                <h2>{deal.title}</h2>
+                <p>{deal.body}</p>
+              </div>
+              <div className="deal-services" aria-label={`${deal.title} includes`}>
+                {deal.services.map((kind) => {
+                  const Icon = searchTabs.find((tab) => tab.id === kind)?.icon || Plane;
+                  return (
+                    <span key={kind}>
+                      <Icon size={16} />
+                      {serviceLabel(serviceType(kind))}
+                    </span>
+                  );
+                })}
+              </div>
+              <div className="deal-action">
+                <div>
+                  <small>from</small>
+                  <strong>USD ${deal.price}</strong>
+                </div>
+                <a href={reviewUrl(deal.reviewKind, deal.resultId)}>
+                  Select deal
+                  <ArrowRight size={17} />
+                </a>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <aside className="deals-workflow">
+        <span>
+          <ShieldCheck size={18} />
+          Secure checkout on Zivos Media
+        </span>
+        <span>
+          <CreditCard size={18} />
+          One payment handoff
+        </span>
+        <span>
+          <WalletCards size={18} />
+          Wallet record after booking
+        </span>
+      </aside>
+    </section>
   );
 }
 
@@ -1310,9 +1499,11 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
                     <p>
                       {trip.bookingReference} • {serviceLabel(trip.serviceType)} • {trip.status}
                     </p>
+                    <small className="trip-traveler">{travelerSummary(trip.traveler)}</small>
                     <div className="result-tags">
                       <span>{trip.persisted ? "Supabase intent" : "Preview draft"}</span>
                       <span>{trip.mode.replace(/_/g, " ")}</span>
+                      {trip.traveler?.preference ? <span>{trip.traveler.preference}</span> : null}
                     </div>
                   </div>
                   <div className="trip-row-price">
@@ -1548,6 +1739,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
   const [bookingIntent, setBookingIntent] = useState<BookingIntentResponse | null>(null);
   const [bookingSaving, setBookingSaving] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [traveler, setTraveler] = useState<TravelerDetails>(defaultTravelerDetails);
   const bookingHref = bookingIntent?.booking.checkoutUrl || activeSession.checkoutUrl;
   const bookingModeLabel = bookingIntent
     ? bookingIntent.persisted
@@ -1555,12 +1747,17 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       : "Preview draft"
     : "Not saved yet";
 
+  function updateTraveler(field: keyof TravelerDetails, value: string) {
+    setTraveler((current) => ({ ...current, [field]: value }));
+  }
+
   useEffect(() => {
     const controller = new AbortController();
     const fallback = fallbackReviewSession(kind, resultId);
     setSession(fallback);
     setBookingIntent(null);
     setBookingError(null);
+    setTraveler(defaultTravelerDetails);
 
     if (!canUseTravelApi()) {
       return () => controller.abort();
@@ -1602,15 +1799,16 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 
   async function createBookingDraft() {
     if (bookingSaving) {
-      return bookingIntent || localBookingIntent(activeSession, kind);
+      return bookingIntent || localBookingIntent(activeSession, kind, traveler);
     }
 
     setBookingSaving(true);
     setBookingError(null);
+    const travelerDetails = sanitizeTravelerDetails(traveler);
 
     if (!canUseTravelApi()) {
-      const intent = localBookingIntent(activeSession, kind);
-      saveBookingIntent(intent);
+      const intent = localBookingIntent(activeSession, kind, travelerDetails);
+      saveBookingIntent(intent, travelerDetails);
       setBookingIntent(intent);
       setBookingSaving(false);
       return intent;
@@ -1635,7 +1833,8 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
         },
         body: JSON.stringify({
           type: kind,
-          resultId: activeSession.result.id
+          resultId: activeSession.result.id,
+          traveler: travelerDetails
         })
       });
 
@@ -1644,12 +1843,12 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       }
 
       const intent = await response.json() as BookingIntentResponse;
-      saveBookingIntent(intent);
+      saveBookingIntent(intent, travelerDetails);
       setBookingIntent(intent);
       return intent;
     } catch (error) {
-      const intent = localBookingIntent(activeSession, kind);
-      saveBookingIntent(intent);
+      const intent = localBookingIntent(activeSession, kind, travelerDetails);
+      saveBookingIntent(intent, travelerDetails);
       setBookingIntent(intent);
       setBookingError("Preview draft created");
       return intent;
@@ -1732,6 +1931,55 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
             {activeSession.result.tags.map((tag) => (
               <span key={tag}>{tag}</span>
             ))}
+          </div>
+
+          <div className="traveler-panel" aria-label="Traveler details">
+            <div className="traveler-head">
+              <span>
+                <UserRound size={18} />
+              </span>
+              <div>
+                <h3>Traveler details</h3>
+                <p>Saved with this draft for checkout and support handoff.</p>
+              </div>
+            </div>
+            <div className="traveler-grid">
+              <label>
+                Full name
+                <input
+                  type="text"
+                  value={traveler.name}
+                  autoComplete="name"
+                  onChange={(event) => updateTraveler("name", event.target.value)}
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={traveler.email}
+                  autoComplete="email"
+                  onChange={(event) => updateTraveler("email", event.target.value)}
+                />
+              </label>
+              <label>
+                Phone
+                <input
+                  type="tel"
+                  value={traveler.phone}
+                  autoComplete="tel"
+                  onChange={(event) => updateTraveler("phone", event.target.value)}
+                />
+              </label>
+              <label>
+                Preference
+                <input
+                  type="text"
+                  value={traveler.preference}
+                  onChange={(event) => updateTraveler("preference", event.target.value)}
+                />
+              </label>
+            </div>
           </div>
 
           <div className="review-steps">
