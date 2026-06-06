@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
 import {
   ArrowRight,
@@ -27,12 +27,78 @@ import "./styles.css";
 const engineOrigin =
   import.meta.env.VITE_ZIVO_PLATFORM_ORIGIN || bridge.platformOrigin || "https://zivosmedia.com";
 
+type SearchKind = "flights" | "hotels" | "cars" | "bus";
+type TripType = "Round trip" | "One way" | "Multi-city";
+type BackendStatus = {
+  mode: string;
+  platformOrigin: string;
+  travelSupabaseUrl?: string;
+  authoritySupabaseUrl?: string;
+  services?: string[];
+  routes?: Partial<Record<SearchKind | "checkout" | "wallet" | "support", string>>;
+  checkedAt?: string;
+};
+
 const searchTabs = [
-  { label: "Flights", icon: Plane, href: "/flights?from=Phnom%20Penh&to=Siem%20Reap&start=2026-06-15&end=2026-06-18&travelers=1" },
-  { label: "Hotels", icon: Hotel, href: "/hotels?city=Siem%20Reap&ci=2026-06-15&co=2026-06-18&adults=1" },
-  { label: "Rental cars", icon: Car, href: "/cars?city=Siem%20Reap&pickup_date=2026-06-15&return_date=2026-06-18" },
-  { label: "Bus", icon: Bus, href: "/bus?from=Phnom%20Penh&to=Siem%20Reap&date=2026-06-15" }
+  {
+    id: "flights",
+    label: "Flights",
+    icon: Plane,
+    cta: "Search flights",
+    href: "/flights?from=Phnom%20Penh&to=Siem%20Reap&start=2026-06-15&end=2026-06-18&travelers=1"
+  },
+  {
+    id: "hotels",
+    label: "Hotels",
+    icon: Hotel,
+    cta: "Search hotels",
+    href: "/hotels?city=Siem%20Reap&ci=2026-06-15&co=2026-06-18&adults=1"
+  },
+  {
+    id: "cars",
+    label: "Rental cars",
+    icon: Car,
+    cta: "Search cars",
+    href: "/cars?city=Siem%20Reap&pickup_date=2026-06-15&return_date=2026-06-18"
+  },
+  {
+    id: "bus",
+    label: "Bus",
+    icon: Bus,
+    cta: "Search buses",
+    href: "/bus?from=Phnom%20Penh&to=Siem%20Reap&date=2026-06-15"
+  }
+] satisfies Array<{
+  id: SearchKind;
+  label: string;
+  icon: typeof Plane;
+  cta: string;
+  href: string;
+}>;
+
+const navLinks = [
+  { label: "Flights", href: searchTabs[0].href },
+  { label: "Hotels", href: searchTabs[1].href },
+  { label: "Rental cars", href: searchTabs[2].href },
+  { label: "Bus", href: searchTabs[3].href },
+  { label: "Deals", href: "/deals" }
 ];
+
+const tripTypes: TripType[] = ["Round trip", "One way", "Multi-city"];
+
+const defaultRoute = {
+  from: "Phnom Penh",
+  fromCode: "PNH",
+  to: "Siem Reap",
+  toCode: "REP"
+};
+
+const defaultDates = {
+  depart: "2026-06-15",
+  return: "2026-06-18",
+  departLabel: "Jun 15, 2026",
+  returnLabel: "Jun 18, 2026"
+};
 
 const routes = [
   {
@@ -77,7 +143,112 @@ function engineUrl(path: string) {
   return new URL(path, engineOrigin).toString();
 }
 
+function canUseTravelApi() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripType = "Round trip") {
+  if (kind === "hotels") {
+    const params = new URLSearchParams({
+      city: route.to,
+      ci: defaultDates.depart,
+      co: defaultDates.return,
+      adults: "1"
+    });
+
+    return `/hotels?${params.toString()}`;
+  }
+
+  if (kind === "cars") {
+    const params = new URLSearchParams({
+      city: route.to,
+      pickup_date: defaultDates.depart,
+      return_date: defaultDates.return
+    });
+
+    return `/cars?${params.toString()}`;
+  }
+
+  if (kind === "bus") {
+    const params = new URLSearchParams({
+      from: route.from,
+      to: route.to,
+      date: defaultDates.depart
+    });
+
+    return `/bus?${params.toString()}`;
+  }
+
+  const params = new URLSearchParams({
+    from: route.from,
+    to: route.to,
+    start: defaultDates.depart,
+    travelers: "1",
+    tripType: tripType.toLowerCase().replace(/\s+/g, "-")
+  });
+
+  if (tripType !== "One way") {
+    params.set("end", defaultDates.return);
+  }
+
+  return `/flights?${params.toString()}`;
+}
+
 function App() {
+  const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!canUseTravelApi()) {
+      setBackendStatus({
+        mode: "local_bridge",
+        platformOrigin: engineOrigin,
+        travelSupabaseUrl: bridge.travelProject.url,
+        services: searchTabs.map((tab) => tab.id),
+        routes: bridge.routing
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    fetch("/api/travel/status", { headers: { accept: "application/json" } })
+      .then((response) => {
+        const contentType = response.headers.get("content-type") || "";
+
+        if (!response.ok || !contentType.includes("application/json")) {
+          throw new Error("Travel backend status unavailable in local asset mode");
+        }
+
+        return response.json() as Promise<BackendStatus>;
+      })
+      .then((status) => {
+        if (!cancelled) {
+          setBackendStatus(status);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBackendStatus({
+            mode: "local_bridge",
+            platformOrigin: engineOrigin,
+            travelSupabaseUrl: bridge.travelProject.url,
+            services: searchTabs.map((tab) => tab.id),
+            routes: bridge.routing
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <main className="travel-page">
       <header className="topbar" aria-label="Zivo Travel navigation">
@@ -90,8 +261,8 @@ function App() {
         </a>
 
         <nav className="nav-links" aria-label="Primary">
-          {["Flights", "Hotels", "Rental cars", "Bus", "Deals"].map((label, index) => (
-            <a key={label} href={engineUrl(searchTabs[index]?.href || "/zivo-travel")}>
+          {navLinks.map(({ label, href }) => (
+            <a key={label} href={engineUrl(href)}>
               {label}
             </a>
           ))}
@@ -128,7 +299,7 @@ function App() {
       </header>
 
       <section className="hero-layout" aria-label="Travel search and feature">
-        <SearchPanel />
+        <SearchPanel backendStatus={backendStatus} />
         <FeatureHero />
       </section>
 
@@ -155,35 +326,133 @@ function App() {
   );
 }
 
-function SearchPanel() {
+function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const [activeKind, setActiveKind] = useState<SearchKind>("flights");
+  const [tripType, setTripType] = useState<TripType>("Round trip");
+  const [route, setRoute] = useState(defaultRoute);
+  const activeTab = searchTabs.find((tab) => tab.id === activeKind) || searchTabs[0];
+  const fallbackHandoff = useMemo(
+    () => engineUrl(buildSearchPath(activeKind, route, tripType)),
+    [activeKind, route, tripType]
+  );
+  const handoffKey = `${activeKind}|${route.from}|${route.to}|${tripType}`;
+  const [handoff, setHandoff] = useState({ key: handoffKey, url: fallbackHandoff });
+  const resolvedHandoff = handoff.key === handoffKey ? handoff.url : fallbackHandoff;
+  const backendLabel = backendStatus?.mode === "cloudflare_bridge" ? "Backend ready" : "Bridge ready";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      type: activeKind,
+      from: route.from,
+      to: route.to,
+      start: defaultDates.depart,
+      end: defaultDates.return,
+      travelers: "1",
+      tripType
+    });
+
+    setHandoff({ key: handoffKey, url: fallbackHandoff });
+
+    if (!canUseTravelApi()) {
+      return () => controller.abort();
+    }
+
+    fetch(`/api/travel/search?${params.toString()}`, {
+      headers: { accept: "application/json" },
+      signal: controller.signal
+    })
+      .then((response) => {
+        const contentType = response.headers.get("content-type") || "";
+
+        if (!response.ok || !contentType.includes("application/json")) {
+          throw new Error("Travel search bridge unavailable in local asset mode");
+        }
+
+        return response.json() as Promise<{ handoffUrl?: string }>;
+      })
+      .then((payload) => {
+        if (payload.handoffUrl) {
+          setHandoff({ key: handoffKey, url: payload.handoffUrl });
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setHandoff({ key: handoffKey, url: fallbackHandoff });
+        }
+      });
+
+    return () => controller.abort();
+  }, [activeKind, fallbackHandoff, handoffKey, route, tripType]);
+
+  function swapRoute() {
+    setRoute((current) => ({
+      from: current.to,
+      fromCode: current.toCode,
+      to: current.from,
+      toCode: current.fromCode
+    }));
+  }
+
   return (
     <article className="search-panel">
       <h1>Where will you go next?</h1>
       <p>Search flights, hotels, cars and buses — all in one place.</p>
 
       <div className="search-tabs" role="tablist" aria-label="Travel type">
-        {searchTabs.map(({ label, icon: Icon, href }, index) => (
-          <a key={label} className={index === 0 ? "active" : ""} href={engineUrl(href)}>
+        {searchTabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={label}
+            type="button"
+            className={id === activeKind ? "active" : ""}
+            role="tab"
+            aria-selected={id === activeKind}
+            onClick={() => setActiveKind(id)}
+          >
             <Icon size={19} />
             {label}
-          </a>
+          </button>
         ))}
       </div>
 
       <div className="trip-type" aria-label="Flight trip type">
-        <span className="selected">Round trip</span>
-        <span>One way</span>
-        <span>Multi-city</span>
+        {tripTypes.map((option) => (
+          <button
+            key={option}
+            type="button"
+            className={option === tripType ? "selected" : ""}
+            aria-pressed={option === tripType}
+            onClick={() => setTripType(option)}
+          >
+            {option}
+          </button>
+        ))}
       </div>
 
       <div className="flight-fields">
-        <Field label="From" value="Phnom Penh" helper="PNH" />
-        <button className="swap-btn" aria-label="Swap route">
+        <Field
+          label={activeKind === "hotels" ? "Destination" : activeKind === "cars" ? "Pick-up" : "From"}
+          value={activeKind === "hotels" || activeKind === "cars" ? route.to : route.from}
+          helper={activeKind === "hotels" ? "City" : activeKind === "cars" ? "Downtown" : route.fromCode}
+        />
+        <button className="swap-btn" type="button" aria-label="Swap route" onClick={swapRoute}>
           <Repeat2 size={19} />
         </button>
-        <Field label="To" value="Siem Reap" helper="REP" />
-        <Field icon={CalendarDays} label="Depart" value="Jun 15, 2026" />
-        <Field icon={CalendarDays} label="Return" value="Jun 18, 2026" />
+        <Field
+          label={activeKind === "hotels" ? "Stay" : activeKind === "cars" ? "Drop-off" : "To"}
+          value={activeKind === "hotels" ? "3 nights" : activeKind === "cars" ? route.to : route.to}
+          helper={activeKind === "hotels" ? "1 room" : activeKind === "cars" ? "Same city" : route.toCode}
+        />
+        <Field
+          icon={CalendarDays}
+          label={activeKind === "cars" ? "Pick up" : activeKind === "bus" ? "Travel date" : activeKind === "hotels" ? "Check in" : "Depart"}
+          value={defaultDates.departLabel}
+        />
+        <Field
+          icon={CalendarDays}
+          label={activeKind === "bus" ? "Seat" : activeKind === "hotels" ? "Check out" : "Return"}
+          value={activeKind === "bus" ? "1 passenger" : tripType === "One way" && activeKind === "flights" ? "Add later" : defaultDates.returnLabel}
+        />
       </div>
 
       <div className="search-footer">
@@ -193,10 +462,10 @@ function SearchPanel() {
             Secure booking
           </span>
           <span>Best price guarantee</span>
-          <span>24/7 support</span>
+          <span className="backend-proof">{backendLabel}</span>
         </div>
-        <a className="primary-search" href={engineUrl(searchTabs[0].href)}>
-          Search flights
+        <a className="primary-search" href={resolvedHandoff}>
+          {activeTab.cta}
           <ArrowRight size={20} />
         </a>
       </div>
