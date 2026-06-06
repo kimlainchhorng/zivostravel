@@ -2,6 +2,7 @@ export interface Env {
   ASSETS: Fetcher;
   ZIVO_PLATFORM_ORIGIN: string;
   ZIVO_TRAVEL_SUPABASE_URL?: string;
+  ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY?: string;
   ZIVO_AUTHORITY_SUPABASE_URL?: string;
 }
 
@@ -88,6 +89,23 @@ function normalizeSearchKind(value: string | null): SearchKind {
   return "flights";
 }
 
+function serviceType(kind: SearchKind) {
+  if (kind === "flights") return "flight";
+  if (kind === "hotels") return "hotel";
+  if (kind === "cars") return "rental_car";
+  return "bus";
+}
+
+function createBookingReference() {
+  return `ztb_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+function withBookingReference(rawUrl: string, bookingReference: string) {
+  const url = new URL(rawUrl);
+  url.searchParams.set("booking_reference", bookingReference);
+  return url.toString();
+}
+
 function apiHeaders(request: Request) {
   const headers = new Headers({
     "content-type": "application/json; charset=utf-8",
@@ -98,7 +116,7 @@ function apiHeaders(request: Request) {
 
   if (origin && allowedApiOrigins.has(origin)) {
     headers.set("access-control-allow-origin", origin);
-    headers.set("access-control-allow-methods", "GET, OPTIONS");
+    headers.set("access-control-allow-methods", "GET, POST, OPTIONS");
     headers.set("access-control-allow-headers", "content-type, authorization");
   }
 
@@ -315,6 +333,125 @@ function buildReviewSession(requestUrl: URL, env: Env, kind: SearchKind) {
   };
 }
 
+function buildBookingRow(requestUrl: URL, env: Env, kind: SearchKind, resultId?: string) {
+  const result = resultCatalog[kind].find((item) => item.id === resultId) || resultCatalog[kind][0];
+  const serviceFee = Math.max(3, Math.round(result.price * 0.08));
+  const bookingReference = createBookingReference();
+  const checkoutUrl = withBookingReference(buildCheckoutUrl(requestUrl, env, kind, result.id), bookingReference);
+  const reviewUrl = withBookingReference(buildReviewUrl(requestUrl, kind, result.id), bookingReference);
+  const auth = new URL(routePaths.authHandoff, platformOrigin(env));
+  const travelers = Number.parseInt(requestUrl.searchParams.get("travelers") || "1", 10);
+
+  auth.searchParams.set("app", "zivo-travel");
+  auth.searchParams.set("redirect", new URL(checkoutUrl).pathname + new URL(checkoutUrl).search);
+
+  return {
+    booking_reference: bookingReference,
+    service_type: serviceType(kind),
+    result_id: result.id,
+    result_title: result.title,
+    provider: result.provider,
+    origin: requestUrl.searchParams.get("from") || "Phnom Penh",
+    destination: requestUrl.searchParams.get("to") || "Siem Reap",
+    date_start: requestUrl.searchParams.get("start") || "2026-06-15",
+    date_end: requestUrl.searchParams.get("end") || "2026-06-18",
+    travelers: Number.isFinite(travelers) ? travelers : 1,
+    currency: "USD",
+    subtotal: result.price,
+    service_fee: serviceFee,
+    total: result.price + serviceFee,
+    status: "pending_checkout",
+    review_url: reviewUrl,
+    checkout_url: checkoutUrl,
+    sso_url: auth.toString(),
+    source_host: requestUrl.host,
+    idempotency_key: bookingReference,
+    request_payload: {
+      product: kind,
+      query: Object.fromEntries(requestUrl.searchParams),
+      result,
+    },
+    checkout_payload: {
+      checkoutUrl,
+      paymentUrl: new URL(routePaths.paymentMethods, platformOrigin(env)).toString(),
+      walletUrl: new URL(routePaths.wallet, platformOrigin(env)).toString(),
+      payoutUrl: new URL(routePaths.payout, platformOrigin(env)).toString(),
+    },
+    metadata: {
+      app: "zivo-travel",
+      bridge: "cloudflare",
+      authority: "zivosmedia",
+    },
+  };
+}
+
+function bookingResponseFromRow(row: Record<string, unknown>, mode: string, persisted: boolean) {
+  return {
+    app: "zivo-travel",
+    mode,
+    persisted,
+    booking: {
+      id: row.id || null,
+      bookingReference: row.booking_reference,
+      status: row.status,
+      serviceType: row.service_type,
+      resultId: row.result_id,
+      resultTitle: row.result_title,
+      provider: row.provider,
+      currency: row.currency,
+      subtotal: row.subtotal,
+      serviceFee: row.service_fee,
+      total: row.total,
+      reviewUrl: row.review_url,
+      checkoutUrl: row.checkout_url,
+      ssoUrl: row.sso_url,
+      createdAt: row.created_at || null,
+    },
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+async function createBookingIntent(request: Request, requestUrl: URL, env: Env) {
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const bodyType = typeof body.type === "string" ? body.type : null;
+  const bodyResult = typeof body.resultId === "string" ? body.resultId : null;
+  const kind = normalizeSearchKind(requestUrl.searchParams.get("type") || bodyType);
+  const resultId = requestUrl.searchParams.get("result") || bodyResult || undefined;
+  const row = buildBookingRow(requestUrl, env, kind, resultId);
+
+  if (!env.ZIVO_TRAVEL_SUPABASE_URL || !env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY) {
+    return {
+      ...bookingResponseFromRow(row, "booking_bridge_preview", false),
+      reason: "missing_supabase_service_role_secret",
+    };
+  }
+
+  const response = await fetch(
+    `${env.ZIVO_TRAVEL_SUPABASE_URL.replace(/\/$/, "")}/rest/v1/zivo_travel_booking_intents?select=id,booking_reference,status,service_type,result_id,result_title,provider,currency,subtotal,service_fee,total,review_url,checkout_url,sso_url,created_at`,
+    {
+      method: "POST",
+      headers: {
+        apikey: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY,
+        authorization: `Bearer ${env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY}`,
+        "content-type": "application/json",
+        prefer: "return=representation",
+      },
+      body: JSON.stringify(row),
+    },
+  );
+
+  if (!response.ok) {
+    return {
+      ...bookingResponseFromRow(row, "booking_bridge_preview", false),
+      reason: "supabase_insert_failed",
+      supabaseStatus: response.status,
+    };
+  }
+
+  const records = await response.json() as Array<Record<string, unknown>>;
+  return bookingResponseFromRow(records[0] || row, "supabase_booking_intent", true);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -353,7 +490,8 @@ export default {
         platformOrigin: platformOrigin(env),
         travelSupabaseUrl: env.ZIVO_TRAVEL_SUPABASE_URL || null,
         authoritySupabaseUrl: env.ZIVO_AUTHORITY_SUPABASE_URL || null,
-        dedicatedBackendEnabled: false,
+        dedicatedBackendEnabled: Boolean(env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY),
+        bookingPersistence: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "supabase" : "preview",
         services: travelServices,
         routes: routePaths,
         checkedAt: new Date().toISOString(),
@@ -391,6 +529,14 @@ export default {
       const kind = normalizeSearchKind(url.searchParams.get("type"));
 
       return json(request, buildReviewSession(url, env, kind));
+    }
+
+    if (url.pathname === "/api/travel/bookings") {
+      if (request.method !== "POST") {
+        return json(request, { error: "method_not_allowed" }, 405);
+      }
+
+      return json(request, await createBookingIntent(request, url, env));
     }
 
     if (url.pathname === "/api/travel/search") {

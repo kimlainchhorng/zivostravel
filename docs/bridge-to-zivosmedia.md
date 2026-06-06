@@ -18,6 +18,7 @@ Date: 2026-06-06
 | Live checkout/payments | Zivos Media | Stay central during migration |
 | Wallet and payouts | Zivos Media | Stay central during migration |
 | Flight/hotel/car/bus live bookings | Zivos Media engine routes | Move in small verified batches |
+| Booking intent drafts | Zivo Travel Supabase `xbllvmpomorawkcrtbcq` | Persist before Zivos Media checkout handoff |
 | Travel telemetry/config | Zivo Travel Supabase `xbllvmpomorawkcrtbcq` | Grow into dedicated backend |
 
 ## Customer routes
@@ -40,6 +41,16 @@ Recommended edge behavior:
 - `https://zivosmedia.com/zivo-travel` remains available as the all-in-one platform preview.
 - Shared booking engine routes can be deep-linked or proxied only after auth/session behavior is verified.
 - Redirect old or retired travel marketing paths to the dedicated Travel surface with 301 redirects after launch.
+
+## Booking intent handoff
+
+The review page creates a draft through `POST /api/travel/bookings` before sending the customer to Zivos Media checkout.
+The draft table is `public.zivo_travel_booking_intents` in the dedicated Travel project.
+
+- With `ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY` configured in Cloudflare, the endpoint returns `supabase_booking_intent`.
+- Without that secret, the endpoint returns `booking_bridge_preview` and still attaches a `booking_reference` to checkout.
+- The service-role key must never be exposed to Vite, browser code, or public env vars.
+- Auth, payment capture, wallet ledger, payout, cancellation, and refund authority stay on Zivos Media during bridge mode.
 
 ## Supabase migration sequence
 

@@ -75,3 +75,15 @@ Keep `VITE_ZIVO_TRAVEL_USE_DEDICATED_BACKEND=false` until flight, hotel, car ren
 - Use the travel Supabase project for telemetry, configuration, previews, and staged migration work.
 - Route customer searches through the existing engine paths listed in the bridge contract.
 - Do not duplicate live bookings or payment data into the travel project until there is a reviewed export/import and rollback plan.
+
+## Booking Draft Persistence
+
+`/api/travel/bookings` creates a Zivo Travel booking reference before checkout handoff. The endpoint writes to
+`public.zivo_travel_booking_intents` only when this Cloudflare secret exists:
+
+```bash
+npx wrangler secret put ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY
+```
+
+Without that secret, the live site stays safe and returns `booking_bridge_preview` with a checkout URL that still includes
+`booking_reference`. The service-role key must stay server-side in Cloudflare only; do not add it to Vite/client env vars.

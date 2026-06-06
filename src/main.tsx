@@ -110,6 +110,29 @@ type ReviewSession = {
   steps: Array<{ label: string; status: string }>;
   ledger: Array<{ label: string; value: string }>;
 };
+type BookingRecord = {
+  id: string | null;
+  bookingReference: string;
+  status: string;
+  serviceType: string;
+  resultId: string;
+  resultTitle: string;
+  provider: string;
+  currency: string;
+  subtotal: number;
+  serviceFee: number;
+  total: number;
+  reviewUrl: string;
+  checkoutUrl: string;
+  ssoUrl: string;
+  createdAt: string | null;
+};
+type BookingIntentResponse = {
+  mode: string;
+  persisted: boolean;
+  booking: BookingRecord;
+  reason?: string;
+};
 
 const searchTabs = [
   {
@@ -545,6 +568,58 @@ function fallbackReviewSession(kind: SearchKind, resultId?: string | null): Revi
       { label: "Payment rail", value: "Saved methods" },
       { label: "Payout record", value: "Wallet ledger" }
     ]
+  };
+}
+
+function localBookingReference() {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+      : `${Date.now()}`.slice(-12);
+
+  return `ztb_${random.toLowerCase()}`;
+}
+
+function withBookingReference(rawUrl: string, bookingReference: string) {
+  const base =
+    typeof window === "undefined" ? "https://zivostravel.com" : window.location.origin;
+  const url = new URL(rawUrl, base);
+  url.searchParams.set("booking_reference", bookingReference);
+
+  return rawUrl.startsWith("/") ? `${url.pathname}${url.search}` : url.toString();
+}
+
+function serviceType(kind: SearchKind) {
+  if (kind === "flights") return "flight";
+  if (kind === "hotels") return "hotel";
+  if (kind === "cars") return "rental_car";
+  return "bus";
+}
+
+function localBookingIntent(session: ReviewSession, kind: SearchKind): BookingIntentResponse {
+  const bookingReference = localBookingReference();
+
+  return {
+    mode: "local_booking_preview",
+    persisted: false,
+    booking: {
+      id: null,
+      bookingReference,
+      status: "preview",
+      serviceType: serviceType(kind),
+      resultId: session.result.id,
+      resultTitle: session.result.title,
+      provider: session.result.provider,
+      currency: session.currency,
+      subtotal: session.subtotal,
+      serviceFee: session.serviceFee,
+      total: session.total,
+      reviewUrl: withBookingReference(session.reviewUrl, bookingReference),
+      checkoutUrl: withBookingReference(session.checkoutUrl, bookingReference),
+      ssoUrl: withBookingReference(session.ssoUrl, bookingReference),
+      createdAt: null
+    },
+    reason: "local_preview"
   };
 }
 
@@ -1139,11 +1214,22 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
   const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
   const Icon = activeTab.icon;
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live handoff" : "Local preview";
+  const [bookingIntent, setBookingIntent] = useState<BookingIntentResponse | null>(null);
+  const [bookingSaving, setBookingSaving] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const bookingHref = bookingIntent?.booking.checkoutUrl || activeSession.checkoutUrl;
+  const bookingModeLabel = bookingIntent
+    ? bookingIntent.persisted
+      ? "Saved in Supabase"
+      : "Preview draft"
+    : "Not saved yet";
 
   useEffect(() => {
     const controller = new AbortController();
     const fallback = fallbackReviewSession(kind, resultId);
     setSession(fallback);
+    setBookingIntent(null);
+    setBookingError(null);
 
     if (!canUseTravelApi()) {
       return () => controller.abort();
@@ -1182,6 +1268,67 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 
     return () => controller.abort();
   }, [kind, resultId]);
+
+  async function createBookingDraft() {
+    if (bookingSaving) {
+      return bookingIntent || localBookingIntent(activeSession, kind);
+    }
+
+    setBookingSaving(true);
+    setBookingError(null);
+
+    if (!canUseTravelApi()) {
+      const intent = localBookingIntent(activeSession, kind);
+      setBookingIntent(intent);
+      setBookingSaving(false);
+      return intent;
+    }
+
+    const params = new URLSearchParams({
+      type: kind,
+      result: activeSession.result.id,
+      from: defaultRoute.from,
+      to: defaultRoute.to,
+      start: defaultDates.depart,
+      end: defaultDates.return,
+      travelers: "1"
+    });
+
+    try {
+      const response = await fetch(`/api/travel/bookings?${params.toString()}`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          type: kind,
+          resultId: activeSession.result.id
+        })
+      });
+
+      if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+        throw new Error("Booking draft unavailable");
+      }
+
+      const intent = await response.json() as BookingIntentResponse;
+      setBookingIntent(intent);
+      return intent;
+    } catch (error) {
+      const intent = localBookingIntent(activeSession, kind);
+      setBookingIntent(intent);
+      setBookingError("Preview draft created");
+      return intent;
+    } finally {
+      setBookingSaving(false);
+    }
+  }
+
+  async function handleCheckout(event: React.MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    const intent = bookingIntent || await createBookingDraft();
+    window.location.href = intent.booking.checkoutUrl;
+  }
 
   return (
     <section className="review-page" aria-label="Booking review">
@@ -1298,7 +1445,17 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
             </div>
           </div>
 
-          <a className="checkout-link" href={activeSession.checkoutUrl}>
+          <div className={`booking-record ${bookingIntent?.persisted ? "persisted" : ""}`}>
+            <span>Booking draft</span>
+            <strong>{bookingIntent?.booking.bookingReference || "Not saved yet"}</strong>
+            <p>{bookingModeLabel}</p>
+            <button type="button" onClick={createBookingDraft} disabled={bookingSaving}>
+              {bookingSaving ? "Saving draft" : bookingIntent ? "Refresh draft" : "Create booking draft"}
+            </button>
+            {bookingError ? <small>{bookingError}</small> : null}
+          </div>
+
+          <a className="checkout-link" href={bookingHref} onClick={handleCheckout}>
             Continue secure checkout
             <ArrowRight size={18} />
           </a>
