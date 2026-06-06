@@ -161,10 +161,17 @@ type DealPackage = {
   price: number;
   save: string;
   highlight: string;
-  image: string;
+  image?: string;
   services: SearchKind[];
   reviewKind: SearchKind;
   resultId: string;
+  reviewUrl?: string;
+};
+type DealsPayload = {
+  mode: string;
+  currency: string;
+  provider: string;
+  deals: DealPackage[];
 };
 
 const searchTabs = [
@@ -321,6 +328,29 @@ const dealPackages: DealPackage[] = [
     resultId: "bus-express"
   }
 ];
+
+function fallbackDeals(): DealsPayload {
+  return {
+    mode: "local_deals",
+    currency: "USD",
+    provider: "zivosmedia",
+    deals: dealPackages
+  };
+}
+
+function mergeDealsWithLocalImages(payload: DealsPayload): DealsPayload {
+  const deals = payload.deals.map((deal) => {
+    const localDeal = dealPackages.find((item) => item.id === deal.id);
+
+    return {
+      ...deal,
+      image: deal.image || localDeal?.image || routePhnomPenhImage,
+      reviewUrl: deal.reviewUrl || reviewUrl(deal.reviewKind, deal.resultId)
+    };
+  });
+
+  return { ...payload, deals };
+}
 
 const resultCatalog: Record<SearchKind, Omit<ResultItem, "checkoutUrl">[]> = {
   flights: [
@@ -1356,7 +1386,41 @@ function MyTrips() {
 }
 
 function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const [payload, setPayload] = useState<DealsPayload>(() => fallbackDeals());
+  const activePayload = payload.deals.length ? payload : fallbackDeals();
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+  const dealModeLabel =
+    activePayload.mode === "cloudflare_deals" ? "Cloudflare packages" : "Local packages";
+
+  useEffect(() => {
+    const fallback = fallbackDeals();
+    const controller = new AbortController();
+    setPayload(fallback);
+
+    if (!canUseTravelApi()) {
+      return () => controller.abort();
+    }
+
+    fetch("/api/travel/deals", {
+      headers: { accept: "application/json" },
+      signal: controller.signal
+    })
+      .then((response) => {
+        if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+          throw new Error("Travel deals bridge unavailable");
+        }
+
+        return response.json() as Promise<DealsPayload>;
+      })
+      .then((dealsPayload) => setPayload(mergeDealsWithLocalImages(dealsPayload)))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setPayload(fallback);
+        }
+      });
+
+    return () => controller.abort();
+  }, []);
 
   return (
     <section className="deals-page" aria-label="Zivo Travel deals">
@@ -1374,16 +1438,16 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
         </div>
         <div className="review-status">
           <span>{bridgeLabel}</span>
-          <strong>Package pricing</strong>
-          <small>3 ready deals</small>
+          <strong>{dealModeLabel}</strong>
+          <small>{activePayload.deals.length} ready deals</small>
         </div>
       </div>
 
       <div className="deals-grid">
-        {dealPackages.map((deal) => (
+        {activePayload.deals.map((deal) => (
           <article key={deal.id} className="deal-card">
             <div className="deal-image">
-              <img src={deal.image} alt={deal.title} />
+              <img src={deal.image || routePhnomPenhImage} alt={deal.title} />
               <span>{deal.highlight}</span>
             </div>
             <div className="deal-body">
@@ -1408,7 +1472,7 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
                   <small>from</small>
                   <strong>USD ${deal.price}</strong>
                 </div>
-                <a href={reviewUrl(deal.reviewKind, deal.resultId)}>
+                <a href={deal.reviewUrl || reviewUrl(deal.reviewKind, deal.resultId)}>
                   Select deal
                   <ArrowRight size={17} />
                 </a>

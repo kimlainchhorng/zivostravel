@@ -19,6 +19,17 @@ type TravelerDetails = {
   phone: string;
   preference: string;
 };
+type DealPackage = {
+  id: string;
+  title: string;
+  body: string;
+  price: number;
+  save: string;
+  highlight: string;
+  services: SearchKind[];
+  reviewKind: SearchKind;
+  resultId: string;
+};
 type ResultTemplate = {
   id: string;
   title: string;
@@ -32,11 +43,12 @@ type ResultTemplate = {
 };
 
 const travelServices: SearchKind[] = ["flights", "hotels", "cars", "bus"];
-const routePaths: Record<SearchKind | "review" | "checkout" | "wallet" | "paymentMethods" | "payout" | "support" | "authHandoff", string> = {
+const routePaths: Record<SearchKind | "deals" | "review" | "checkout" | "wallet" | "paymentMethods" | "payout" | "support" | "authHandoff", string> = {
   flights: "/flights",
   hotels: "/hotels",
   cars: "/cars",
   bus: "/bus",
+  deals: "/deals",
   review: "/booking/review",
   checkout: "/travel/checkout",
   wallet: "/wallet",
@@ -52,6 +64,42 @@ const quoteDefaults: Record<SearchKind, { label: string; total: number }> = {
   cars: { label: "Siem Reap rental car", total: 84 },
   bus: { label: "Phnom Penh to Siem Reap bus", total: 18 },
 };
+
+const dealPackages: DealPackage[] = [
+  {
+    id: "angkor-flight-hotel",
+    title: "Angkor weekend bundle",
+    body: "Flight + hotel for a three-night Siem Reap escape with flexible change support.",
+    price: 168,
+    save: "Save $28",
+    highlight: "Best starter trip",
+    services: ["flights", "hotels"],
+    reviewKind: "flights",
+    resultId: "flight-angkor-direct",
+  },
+  {
+    id: "city-stay-driver",
+    title: "Stay + private driver",
+    body: "Hotel, airport pickup, and a private day route for customers who want easy arrival.",
+    price: 188,
+    save: "Save $34",
+    highlight: "Most comfortable",
+    services: ["hotels", "cars"],
+    reviewKind: "hotels",
+    resultId: "hotel-temple-garden",
+  },
+  {
+    id: "budget-bus-hotel",
+    title: "Budget bus + hotel",
+    body: "Reserved bus seat and smart hotel stay for travelers who want the lowest total.",
+    price: 116,
+    save: "Save $18",
+    highlight: "Lowest price",
+    services: ["bus", "hotels"],
+    reviewKind: "bus",
+    resultId: "bus-express",
+  },
+];
 
 const resultCatalog: Record<SearchKind, ResultTemplate[]> = {
   flights: [
@@ -313,6 +361,20 @@ function buildResults(requestUrl: URL, env: Env, kind: SearchKind) {
       ...result,
       reviewUrl: buildReviewUrl(requestUrl, kind, result.id),
       checkoutUrl: buildCheckoutUrl(requestUrl, env, kind, result.id),
+    })),
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function buildDeals(requestUrl: URL) {
+  return {
+    app: "zivo-travel",
+    mode: "cloudflare_deals",
+    currency: "USD",
+    provider: "zivosmedia",
+    deals: dealPackages.map((deal) => ({
+      ...deal,
+      reviewUrl: buildReviewUrl(requestUrl, deal.reviewKind, deal.resultId),
     })),
     checkedAt: new Date().toISOString(),
   };
@@ -633,6 +695,10 @@ export default {
       const kind = normalizeSearchKind(url.searchParams.get("type"));
 
       return json(request, buildResults(url, env, kind));
+    }
+
+    if (url.pathname === "/api/travel/deals") {
+      return json(request, buildDeals(url));
     }
 
     if (url.pathname === "/api/travel/session") {
