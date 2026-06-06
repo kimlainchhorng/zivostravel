@@ -79,15 +79,23 @@ Keep `VITE_ZIVO_TRAVEL_USE_DEDICATED_BACKEND=false` until flight, hotel, car ren
 ## Booking Draft Persistence
 
 `/api/travel/bookings` creates a Zivo Travel booking reference before checkout handoff. The endpoint writes to
-`public.zivo_travel_booking_intents` only when this Cloudflare secret exists:
+`public.zivo_travel_booking_intents` when either a private service-role key or the safer insert-only publishable key exists in
+Cloudflare:
 
 ```bash
+npx wrangler secret put ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY
 npx wrangler secret put ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY
 ```
 
-Without that secret, the live site stays safe and returns `booking_bridge_preview` with a checkout URL that still includes
-`booking_reference`. The service-role key must stay server-side in Cloudflare only; do not add it to Vite/client env vars.
+Without a write key, the live site stays safe and returns `booking_bridge_preview` with a checkout URL that still includes
+`booking_reference`. Both keys must stay server-side in Cloudflare only; do not add them to Vite/client env vars.
 
 The `/trips` page stores booking drafts in the customer's browser so they can resume review or checkout immediately. When
 the Cloudflare Supabase secret is configured, `GET /api/travel/bookings?reference=ztb_...` is ready to look up the matching
 persisted intent by reference.
+
+## Search Telemetry
+
+`/api/travel/results` writes each live flight, hotel, rental car, and bus search to
+`public.zivo_travel_search_events` in the dedicated Travel project. The table uses RLS so anonymous customers can insert
+search telemetry, while customer reads stay owner-scoped.

@@ -243,6 +243,34 @@ function cleanText(value: unknown, fallback = "", maxLength = 160) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) || fallback : fallback;
 }
 
+function cleanNullableText(value: unknown, maxLength = 160) {
+  const textValue = cleanText(value, "", maxLength);
+  return textValue || null;
+}
+
+function readBoundedInteger(requestUrl: URL, keys: string[], fallback: number, maxValue = 99) {
+  const key = keys.find((candidate) => requestUrl.searchParams.has(candidate));
+  const parsed = Number.parseInt(key ? requestUrl.searchParams.get(key) || "" : "", 10);
+
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.min(maxValue, parsed));
+}
+
+function readDateParam(requestUrl: URL, keys: string[]) {
+  const key = keys.find((candidate) => requestUrl.searchParams.has(candidate));
+  const value = key ? requestUrl.searchParams.get(key) : null;
+
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function searchParamText(requestUrl: URL, keys: string[], fallback?: string) {
+  const key = keys.find((candidate) => requestUrl.searchParams.has(candidate));
+  return cleanNullableText(key ? requestUrl.searchParams.get(key) : fallback);
+}
+
 function sanitizeTraveler(value: unknown): TravelerDetails | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -461,7 +489,80 @@ function buildQuote(requestUrl: URL, env: Env, kind: SearchKind) {
   };
 }
 
-function buildResults(requestUrl: URL, env: Env, kind: SearchKind) {
+function buildSearchEventRow(requestUrl: URL, kind: SearchKind) {
+  const from = searchParamText(requestUrl, ["from"], "Phnom Penh");
+  const to = searchParamText(requestUrl, ["to", "city"], "Siem Reap");
+  const city = searchParamText(requestUrl, ["city", "to"], to || "Siem Reap");
+  const travelers = readBoundedInteger(requestUrl, ["travelers", "adults", "drivers", "passengers"], 1, 99);
+  const rooms = kind === "hotels" ? readBoundedInteger(requestUrl, ["rooms"], Math.max(1, Math.ceil(travelers / 2)), 20) : null;
+
+  return {
+    session_id: searchParamText(requestUrl, ["session_id", "sessionId", "sid"], undefined),
+    service_type: serviceType(kind),
+    origin: kind === "hotels" || kind === "cars" ? null : from,
+    destination: kind === "hotels" || kind === "cars" ? city : to,
+    pickup: kind === "cars" ? searchParamText(requestUrl, ["pickup", "city", "from"], city || "Siem Reap") : null,
+    dropoff: kind === "cars" ? searchParamText(requestUrl, ["dropoff", "city", "to"], city || "Siem Reap") : null,
+    date_start: readDateParam(requestUrl, ["start", "date", "ci", "pickup_date"]),
+    date_end: readDateParam(requestUrl, ["end", "co", "return_date"]),
+    travelers,
+    rooms,
+    filters: {
+      ...Object.fromEntries(requestUrl.searchParams),
+      product: kind,
+      bridge: "cloudflare_results",
+    },
+    source_host: requestUrl.host,
+  };
+}
+
+async function persistSearchEvent(requestUrl: URL, env: Env, kind: SearchKind) {
+  const supabaseUrl = travelSupabaseUrl(env);
+  const writeKey = writeSupabaseKey(env);
+
+  if (!supabaseUrl || !writeKey) {
+    return {
+      mode: "search_event_preview",
+      persisted: false,
+      reason: "missing_supabase_write_key",
+    };
+  }
+
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/zivo_travel_search_events`, {
+      method: "POST",
+      headers: supabaseApiHeaders(writeKey, {
+        "content-type": "application/json",
+        prefer: "return=minimal",
+      }),
+      body: JSON.stringify(buildSearchEventRow(requestUrl, kind)),
+    });
+
+    if (!response.ok) {
+      return {
+        mode: "search_event_preview",
+        persisted: false,
+        reason: "supabase_search_event_insert_failed",
+        supabaseStatus: response.status,
+      };
+    }
+
+    return {
+      mode: "supabase_search_event",
+      persisted: true,
+    };
+  } catch {
+    return {
+      mode: "search_event_preview",
+      persisted: false,
+      reason: "supabase_search_event_insert_error",
+    };
+  }
+}
+
+async function buildResults(requestUrl: URL, env: Env, kind: SearchKind) {
+  const searchEvent = await persistSearchEvent(requestUrl, env, kind);
+
   return {
     app: "zivo-travel",
     mode: "cloudflare_results",
@@ -475,6 +576,7 @@ function buildResults(requestUrl: URL, env: Env, kind: SearchKind) {
       reviewUrl: buildReviewUrl(requestUrl, kind, result.id),
       checkoutUrl: buildCheckoutUrl(requestUrl, env, kind, result.id),
     })),
+    searchEvent,
     checkedAt: new Date().toISOString(),
   };
 }
@@ -955,6 +1057,7 @@ export default {
         authoritySupabaseUrl: env.ZIVO_AUTHORITY_SUPABASE_URL || null,
         dedicatedBackendEnabled: hasWriteSupabaseKey,
         bookingPersistence: hasPrivateSupabaseKey ? "supabase" : hasWriteSupabaseKey ? "supabase_insert" : "preview",
+        searchTelemetry: hasWriteSupabaseKey ? "supabase_insert" : "preview",
         adminQueue: hasPrivateSupabaseKey ? "supabase_rpc" : "preview",
         walletSummary: hasPrivateSupabaseKey ? "bridge_ready" : "preview",
         services: travelServices,
@@ -987,7 +1090,7 @@ export default {
     if (url.pathname === "/api/travel/results") {
       const kind = normalizeSearchKind(url.searchParams.get("type"));
 
-      return json(request, buildResults(url, env, kind));
+      return json(request, await buildResults(url, env, kind));
     }
 
     if (url.pathname === "/api/travel/deals") {

@@ -54,6 +54,7 @@ type BackendStatus = {
   authoritySupabaseUrl?: string;
   dedicatedBackendEnabled?: boolean;
   bookingPersistence?: string;
+  searchTelemetry?: string;
   adminQueue?: string;
   walletSummary?: string;
   services?: string[];
@@ -445,10 +446,10 @@ const quoteDefaults: Record<SearchKind, { label: string; total: number }> = {
 };
 
 const connectionItems = [
-  { label: "SSO", value: "Auth handoff", icon: LockKeyhole },
-  { label: "Payment", value: "Checkout ready", icon: CreditCard },
-  { label: "Payout", value: "Wallet ledger", icon: Landmark },
-  { label: "SEO", value: "Sitemap live", icon: Link2 }
+  { key: "account", label: "Account", value: "One sign-in", icon: LockKeyhole },
+  { key: "payment", label: "Checkout", value: "Secure payment", icon: CreditCard },
+  { key: "wallet", label: "Wallet", value: "Rewards and refunds", icon: WalletCards },
+  { key: "seo", label: "Trip pages", value: "Shareable details", icon: Link2 }
 ];
 
 const dealPackages: DealPackage[] = [
@@ -1752,6 +1753,38 @@ function fallbackQuote(kind: SearchKind): QuotePayload {
   };
 }
 
+function workflowStatusCopy(status: string) {
+  if (status === "ready") {
+    return "Ready now";
+  }
+
+  if (status === "handoff") {
+    return "Opens securely";
+  }
+
+  return formatMode(status);
+}
+
+function workflowStepLabel(label: string) {
+  if (label === "Sign in") {
+    return "Secure sign-in";
+  }
+
+  if (label === "Pay") {
+    return "Pay safely";
+  }
+
+  if (label === "Confirm") {
+    return "Trip confirmed";
+  }
+
+  if (label === "Wallet record") {
+    return "Saved to wallet";
+  }
+
+  return label;
+}
+
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
   const [savedTripCount, setSavedTripCount] = useState(() => readSavedTrips().length);
@@ -1965,14 +1998,6 @@ function App() {
             {savedTripCount ? <span className="pill-count">{savedTripCount}</span> : null}
           </a>
           <a
-            className={`pill ${path === "/ops" || path === "/travel/ops" ? "active" : ""}`}
-            href={localUrl("/ops")}
-            aria-current={path === "/ops" || path === "/travel/ops" ? "page" : undefined}
-          >
-            <ReceiptText size={16} />
-            Ops
-          </a>
-          <a
             className={`pill ${path === "/wallet" || path === "/travel/wallet" ? "active" : ""}`}
             href={localUrl("/wallet")}
             aria-current={path === "/wallet" || path === "/travel/wallet" ? "page" : undefined}
@@ -2026,11 +2051,11 @@ function App() {
                   <small>Flight, hotel, car, and bus packages</small>
                 </span>
               </a>
-              <a href={localUrl("/ops")}>
+              <a href={localUrl("/support")}>
                 <BadgeCheck size={17} />
                 <span>
-                  <b>Ops queue</b>
-                  <small>{backendStatus?.adminQueue === "supabase_rpc" ? "Supabase queue ready" : "Preview queue active"}</small>
+                  <b>Booking protection</b>
+                  <small>{backendStatus?.adminQueue === "supabase_rpc" ? "Live trip monitoring is ready" : "Preview trip monitoring is active"}</small>
                 </span>
               </a>
               <a href={localUrl("/wallet")}>
@@ -2350,7 +2375,12 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
     () => localUrl(buildSearchPath(activeKind, route, tripType, searchCount, dates)),
     [activeKind, route, tripType, searchCount, dates]
   );
-  const backendLabel = backendStatus?.mode === "cloudflare_bridge" ? "Backend ready" : "Bridge ready";
+  const backendLabel =
+    backendStatus?.searchTelemetry === "supabase_insert"
+      ? "Search sync ready"
+      : backendStatus?.mode === "cloudflare_bridge"
+        ? "Backend ready"
+        : "Bridge ready";
 
   function updateSearchCount(delta: number) {
     setSearchCount((current) => Math.max(1, Math.min(9, current + delta)));
@@ -4333,8 +4363,8 @@ function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | nul
         <div className="workflow-headline">
           <Search size={21} />
           <div>
-            <h2>Trip flow</h2>
-            <p>{connectionMode}</p>
+            <h2>Book in five steps</h2>
+            <p>{connectionMode === "Cloudflare bridge" ? "Live booking path" : "Preview booking path"}</p>
           </div>
         </div>
         <div className="step-chain">
@@ -4343,8 +4373,8 @@ function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | nul
               <span>
                 <CheckCircle2 size={16} />
               </span>
-              <strong>{step.label}</strong>
-              <small>{step.status}</small>
+              <strong>{workflowStepLabel(step.label)}</strong>
+              <small>{workflowStatusCopy(step.status)}</small>
             </div>
           ))}
         </div>
@@ -4354,21 +4384,21 @@ function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | nul
         <div className="workflow-headline">
           <Link2 size={21} />
           <div>
-            <h2>Connections</h2>
-            <p>{activeQuote.provider}</p>
+            <h2>Everything follows you</h2>
+            <p>Trips, payments, wallet, and support stay connected.</p>
           </div>
         </div>
         <div className="connection-grid">
-          {connectionItems.map(({ label, value, icon: Icon }) => (
+          {connectionItems.map(({ key, label, value, icon: Icon }) => (
             <a
               key={label}
               href={
-                label === "SSO"
+                key === "account"
                   ? activeQuote.ssoUrl
-                  : label === "Payment"
+                  : key === "payment"
                     ? activeQuote.paymentUrl
-                    : label === "Payout"
-                      ? activeQuote.payoutUrl
+                    : key === "wallet"
+                      ? activeQuote.walletUrl
                       : "/sitemap.xml"
               }
             >
