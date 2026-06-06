@@ -102,6 +102,18 @@ type SearchField = {
   value: string;
   helper?: string;
   icon?: typeof CalendarDays;
+  inputType?: "text" | "date";
+  onChange?: (value: string) => void;
+};
+type SearchContext = {
+  from: string;
+  to: string;
+  start: string;
+  end: string;
+  count: number;
+  rooms: number;
+  tripType: string;
+  chips: string[];
 };
 type ReviewSession = {
   product: SearchKind;
@@ -324,6 +336,16 @@ const defaultDates = {
   return: "2026-06-18",
   departLabel: "Jun 15, 2026",
   returnLabel: "Jun 18, 2026"
+};
+
+const cityCodeMap: Record<string, string> = {
+  "phnom penh": "PNH",
+  "siem reap": "REP",
+  bangkok: "BKK",
+  "new york": "NYC",
+  "los angeles": "LAX",
+  tokyo: "TYO",
+  singapore: "SIN"
 };
 
 const savedTripsKey = "zivo-travel-booking-drafts";
@@ -748,6 +770,56 @@ function currentPath() {
   return window.location.pathname;
 }
 
+function readNumberParam(params: URLSearchParams, keys: string[], fallback: number) {
+  const key = keys.find((candidate) => params.has(candidate));
+  const value = key ? Number(params.get(key)) : fallback;
+
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.min(9, Math.round(value)));
+}
+
+function readSearchContext(kind: SearchKind): SearchContext {
+  const params = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const from = params.get("from") || defaultRoute.from;
+  const to = params.get("to") || params.get("city") || defaultRoute.to;
+  const start = params.get("start") || params.get("date") || params.get("ci") || params.get("pickup_date") || defaultDates.depart;
+  const end = params.get("end") || params.get("co") || params.get("return_date") || defaultDates.return;
+  const count = readNumberParam(params, ["travelers", "adults", "drivers", "passengers"], 1);
+  const rooms = readNumberParam(params, ["rooms"], Math.max(1, Math.ceil(count / 2)));
+  const tripType = params.get("tripType")?.replace(/-/g, " ") || "round trip";
+  const startLabel = formatTravelDate(start, defaultDates.departLabel);
+  const endLabel = formatTravelDate(end, defaultDates.returnLabel);
+  const dateChip = kind === "bus" ? startLabel : `${startLabel} - ${endLabel}`;
+  const peopleLabel =
+    kind === "hotels"
+      ? `${count} ${count === 1 ? "guest" : "guests"}`
+      : kind === "cars"
+        ? `${count} ${count === 1 ? "driver" : "drivers"}`
+        : `${count} ${count === 1 ? "traveler" : "travelers"}`;
+  const routeChip = kind === "hotels" || kind === "cars" ? to : `${from} to ${to}`;
+  const chips = kind === "hotels"
+    ? [routeChip, dateChip, peopleLabel, `${rooms} ${rooms === 1 ? "room" : "rooms"}`]
+    : kind === "cars"
+      ? [routeChip, dateChip, peopleLabel]
+      : kind === "bus"
+        ? [routeChip, startLabel, `${count} ${count === 1 ? "passenger" : "passengers"}`]
+        : [routeChip, dateChip, peopleLabel, formatMode(tripType)];
+
+  return {
+    from,
+    to,
+    start,
+    end,
+    count,
+    rooms,
+    tripType,
+    chips
+  };
+}
+
 function isPrimaryNavActive(label: string, href: string) {
   const path = currentPath();
 
@@ -815,6 +887,114 @@ function reviewUrl(kind: SearchKind, resultId?: string, dealId?: string) {
   return localUrl(`/booking/review?${params.toString()}`);
 }
 
+function resultRequestParams(kind: SearchKind, context: SearchContext) {
+  const params = new URLSearchParams({
+    type: kind,
+    from: context.from,
+    to: context.to,
+    start: context.start,
+    end: context.end,
+    travelers: String(context.count)
+  });
+
+  if (kind === "flights") {
+    params.set("tripType", context.tripType.toLowerCase().replace(/\s+/g, "-"));
+  }
+
+  if (kind === "hotels") {
+    params.set("city", context.to);
+    params.set("ci", context.start);
+    params.set("co", context.end);
+    params.set("adults", String(context.count));
+    params.set("rooms", String(context.rooms));
+  }
+
+  if (kind === "cars") {
+    params.set("city", context.to);
+    params.set("pickup_date", context.start);
+    params.set("return_date", context.end);
+    params.set("drivers", String(context.count));
+  }
+
+  if (kind === "bus") {
+    params.set("date", context.start);
+    params.set("passengers", String(context.count));
+  }
+
+  return params;
+}
+
+function resultListUrl(kind: SearchKind, context: SearchContext) {
+  const params = resultRequestParams(kind, context);
+  params.delete("type");
+
+  return localUrl(`/${kind}?${params.toString()}`);
+}
+
+function contextualCheckoutUrl(
+  kind: SearchKind,
+  resultId: string | undefined,
+  dealId: string | undefined,
+  context: SearchContext
+) {
+  const params = resultRequestParams(kind, context);
+  params.delete("type");
+  params.set("product", kind);
+
+  if (resultId) {
+    params.set("result", resultId);
+  }
+
+  if (dealId) {
+    params.set("deal", dealId);
+  }
+
+  return engineUrl(`/travel/checkout?${params.toString()}`);
+}
+
+function contextualReviewUrl(
+  kind: SearchKind,
+  resultId: string | undefined,
+  context: SearchContext,
+  dealId?: string
+) {
+  const params = resultRequestParams(kind, context);
+
+  if (resultId) {
+    params.set("result", resultId);
+  }
+
+  if (dealId) {
+    params.set("deal", dealId);
+  }
+
+  return localUrl(`/booking/review?${params.toString()}`);
+}
+
+function contextualizeReviewSession(session: ReviewSession, kind: SearchKind, context: SearchContext): ReviewSession {
+  const reviewHref = contextualReviewUrl(kind, session.result.id, context, session.deal?.id);
+  const checkoutHref = contextualCheckoutUrl(kind, session.result.id, session.deal?.id, context);
+  const checkoutTarget = new URL(checkoutHref);
+  const result = contextualizeResultItem(kind, session.result, context);
+
+  return {
+    ...session,
+    summary: result.detail,
+    reviewUrl: reviewHref,
+    checkoutUrl: checkoutHref,
+    result: {
+      ...result,
+      reviewUrl: reviewHref,
+      checkoutUrl: checkoutHref
+    },
+    ssoUrl: engineUrl(
+      `${bridge.routing.authHandoff}?app=zivo-travel&redirect=${encodeURIComponent(
+        checkoutTarget.pathname + checkoutTarget.search
+      )}`
+    )
+  };
+}
+
 function resultLabel(kind: SearchKind) {
   if (kind === "hotels") {
     return "Hotels in Siem Reap";
@@ -845,6 +1025,93 @@ function resultSummary(kind: SearchKind) {
   }
 
   return "3 flight options ready for Jun 15, 2026";
+}
+
+function contextualResultLabel(kind: SearchKind, context: SearchContext) {
+  if (kind === "hotels") {
+    return `Hotels in ${context.to}`;
+  }
+
+  if (kind === "cars") {
+    return `Rental cars in ${context.to}`;
+  }
+
+  if (kind === "bus") {
+    return `Buses from ${context.from} to ${context.to}`;
+  }
+
+  return `Flights from ${context.from} to ${context.to}`;
+}
+
+function contextualResultSummary(kind: SearchKind, context: SearchContext, count: number) {
+  const startLabel = formatTravelDate(context.start, defaultDates.departLabel);
+  const endLabel = formatTravelDate(context.end, defaultDates.returnLabel);
+
+  if (kind === "hotels") {
+    return `${count} stays ready for ${startLabel} - ${endLabel}`;
+  }
+
+  if (kind === "cars") {
+    return `${count} rental options ready for pickup in ${context.to}`;
+  }
+
+  if (kind === "bus") {
+    return `${count} bus departures ready for ${startLabel}`;
+  }
+
+  return `${count} flight options ready for ${startLabel}`;
+}
+
+function travelDaySpan(start: string, end: string, fallback: number) {
+  const startDate = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+  const diff = Math.round((endDate.getTime() - startDate.getTime()) / 86400000);
+
+  return Number.isFinite(diff) && diff > 0 ? diff : fallback;
+}
+
+function contextualResultDetail(kind: SearchKind, context: SearchContext) {
+  if (kind === "hotels") {
+    return `${context.to} stay`;
+  }
+
+  if (kind === "cars") {
+    return `${context.to} pickup`;
+  }
+
+  return `${context.from} to ${context.to}`;
+}
+
+function contextualizeResultItem(kind: SearchKind, result: ResultItem, context: SearchContext): ResultItem {
+  const startLabel = formatTravelDate(context.start, defaultDates.departLabel);
+  const endLabel = formatTravelDate(context.end, defaultDates.returnLabel);
+
+  if (kind === "hotels") {
+    const nights = travelDaySpan(context.start, context.end, 3);
+
+    return {
+      ...result,
+      detail: contextualResultDetail(kind, context),
+      time: `${startLabel} - ${endLabel}`,
+      duration: `${nights} ${nights === 1 ? "night" : "nights"}`
+    };
+  }
+
+  if (kind === "cars") {
+    const days = travelDaySpan(context.start, context.end, 3);
+
+    return {
+      ...result,
+      detail: contextualResultDetail(kind, context),
+      time: `${startLabel}, 10:00 AM`,
+      duration: `${days} ${days === 1 ? "day" : "days"}`
+    };
+  }
+
+  return {
+    ...result,
+    detail: contextualResultDetail(kind, context)
+  };
 }
 
 function fallbackResults(kind: SearchKind): ResultsPayload {
@@ -1356,14 +1623,50 @@ function money(currency: string, amount: number) {
   return `${option.code} ${formatted}${option.symbol}`;
 }
 
-function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripType = "Round trip", count = 1) {
+function cityCode(value: string, fallback: string) {
+  const normalized = value.trim().toLowerCase();
+
+  return cityCodeMap[normalized] || fallback;
+}
+
+function formatTravelDate(value: string, fallback: string) {
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return fallback;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function normalizedTravelDates(dates = defaultDates) {
+  return {
+    depart: dates.depart || defaultDates.depart,
+    return: dates.return || defaultDates.return,
+    departLabel: formatTravelDate(dates.depart || defaultDates.depart, defaultDates.departLabel),
+    returnLabel: formatTravelDate(dates.return || defaultDates.return, defaultDates.returnLabel)
+  };
+}
+
+function buildSearchPath(
+  kind: SearchKind,
+  route = defaultRoute,
+  tripType: TripType = "Round trip",
+  count = 1,
+  dates = defaultDates
+) {
   const safeCount = Math.max(1, Math.min(9, count));
+  const travelDates = normalizedTravelDates(dates);
 
   if (kind === "hotels") {
     const params = new URLSearchParams({
       city: route.to,
-      ci: defaultDates.depart,
-      co: defaultDates.return,
+      ci: travelDates.depart,
+      co: travelDates.return,
       adults: String(safeCount),
       rooms: String(Math.max(1, Math.ceil(safeCount / 2)))
     });
@@ -1374,8 +1677,8 @@ function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripT
   if (kind === "cars") {
     const params = new URLSearchParams({
       city: route.to,
-      pickup_date: defaultDates.depart,
-      return_date: defaultDates.return,
+      pickup_date: travelDates.depart,
+      return_date: travelDates.return,
       drivers: String(safeCount)
     });
 
@@ -1386,7 +1689,7 @@ function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripT
     const params = new URLSearchParams({
       from: route.from,
       to: route.to,
-      date: defaultDates.depart,
+      date: travelDates.depart,
       passengers: String(safeCount)
     });
 
@@ -1396,13 +1699,13 @@ function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripT
   const params = new URLSearchParams({
     from: route.from,
     to: route.to,
-    start: defaultDates.depart,
+    start: travelDates.depart,
     travelers: String(safeCount),
     tripType: tripType.toLowerCase().replace(/\s+/g, "-")
   });
 
   if (tripType !== "One way") {
-    params.set("end", defaultDates.return);
+    params.set("end", travelDates.return);
   }
 
   return `/flights?${params.toString()}`;
@@ -1844,44 +2147,148 @@ function quantityCopy(kind: SearchKind, count: number, tripType: TripType) {
   };
 }
 
-function searchFields(kind: SearchKind, route: typeof defaultRoute, tripType: TripType, count: number): SearchField[] {
+function searchFields(
+  kind: SearchKind,
+  route: typeof defaultRoute,
+  tripType: TripType,
+  count: number,
+  dates: typeof defaultDates,
+  updateRoute: (field: "from" | "to", value: string) => void,
+  updateDate: (field: "depart" | "return", value: string) => void
+): SearchField[] {
+  const travelDates = normalizedTravelDates(dates);
+
   if (kind === "hotels") {
     const rooms = Math.max(1, Math.ceil(count / 2));
 
     return [
-      { label: "Destination", value: route.to, helper: "Siem Reap city", icon: MapPinned },
+      {
+        label: "Destination",
+        value: route.to,
+        helper: `${cityCode(route.to, route.toCode)} city`,
+        icon: MapPinned,
+        inputType: "text",
+        onChange: (value) => updateRoute("to", value)
+      },
       { label: "Rooms", value: `${rooms} ${rooms === 1 ? "room" : "rooms"}`, helper: `${count} ${count === 1 ? "guest" : "guests"}`, icon: BedDouble },
-      { label: "Check in", value: defaultDates.departLabel, icon: CalendarDays },
-      { label: "Check out", value: defaultDates.returnLabel, icon: CalendarDays }
+      {
+        label: "Check in",
+        value: travelDates.depart,
+        helper: travelDates.departLabel,
+        icon: CalendarDays,
+        inputType: "date",
+        onChange: (value) => updateDate("depart", value)
+      },
+      {
+        label: "Check out",
+        value: travelDates.return,
+        helper: travelDates.returnLabel,
+        icon: CalendarDays,
+        inputType: "date",
+        onChange: (value) => updateDate("return", value)
+      }
     ];
   }
 
   if (kind === "cars") {
     return [
-      { label: "Pick-up", value: route.to, helper: "Downtown counter", icon: MapPinned },
-      { label: "Drop-off", value: route.to, helper: "Same location", icon: Car },
-      { label: "Pick up", value: defaultDates.departLabel, helper: "10:00 AM", icon: CalendarDays },
-      { label: "Return", value: defaultDates.returnLabel, helper: "10:00 AM", icon: Clock3 }
+      {
+        label: "Pick-up",
+        value: route.to,
+        helper: `${cityCode(route.to, route.toCode)} counter`,
+        icon: MapPinned,
+        inputType: "text",
+        onChange: (value) => updateRoute("to", value)
+      },
+      {
+        label: "Drop-off",
+        value: route.to,
+        helper: "Same location",
+        icon: Car,
+        inputType: "text",
+        onChange: (value) => updateRoute("to", value)
+      },
+      {
+        label: "Pick up",
+        value: travelDates.depart,
+        helper: "10:00 AM",
+        icon: CalendarDays,
+        inputType: "date",
+        onChange: (value) => updateDate("depart", value)
+      },
+      {
+        label: "Return",
+        value: travelDates.return,
+        helper: "10:00 AM",
+        icon: Clock3,
+        inputType: "date",
+        onChange: (value) => updateDate("return", value)
+      }
     ];
   }
 
   if (kind === "bus") {
     return [
-      { label: "From", value: route.from, helper: route.fromCode, icon: MapPinned },
-      { label: "To", value: route.to, helper: route.toCode, icon: MapPinned },
-      { label: "Travel date", value: defaultDates.departLabel, icon: CalendarDays },
+      {
+        label: "From",
+        value: route.from,
+        helper: cityCode(route.from, route.fromCode),
+        icon: MapPinned,
+        inputType: "text",
+        onChange: (value) => updateRoute("from", value)
+      },
+      {
+        label: "To",
+        value: route.to,
+        helper: cityCode(route.to, route.toCode),
+        icon: MapPinned,
+        inputType: "text",
+        onChange: (value) => updateRoute("to", value)
+      },
+      {
+        label: "Travel date",
+        value: travelDates.depart,
+        helper: travelDates.departLabel,
+        icon: CalendarDays,
+        inputType: "date",
+        onChange: (value) => updateDate("depart", value)
+      },
       { label: "Passengers", value: `${count} ${count === 1 ? "passenger" : "passengers"}`, helper: "Reserved seats", icon: UserRound }
     ];
   }
 
   return [
-    { label: "From", value: route.from, helper: route.fromCode, icon: MapPinned },
-    { label: "To", value: route.to, helper: route.toCode, icon: MapPinned },
-    { label: "Depart", value: defaultDates.departLabel, icon: CalendarDays },
+    {
+      label: "From",
+      value: route.from,
+      helper: cityCode(route.from, route.fromCode),
+      icon: MapPinned,
+      inputType: "text",
+      onChange: (value) => updateRoute("from", value)
+    },
+    {
+      label: "To",
+      value: route.to,
+      helper: cityCode(route.to, route.toCode),
+      icon: MapPinned,
+      inputType: "text",
+      onChange: (value) => updateRoute("to", value)
+    },
+    {
+      label: "Depart",
+      value: travelDates.depart,
+      helper: travelDates.departLabel,
+      icon: CalendarDays,
+      inputType: "date",
+      onChange: (value) => updateDate("depart", value)
+    },
     {
       label: "Return",
-      value: tripType === "One way" ? "Add later" : defaultDates.returnLabel,
-      icon: CalendarDays
+      value: travelDates.return,
+      helper: tripType === "One way" ? "Optional for one way" : travelDates.returnLabel,
+      icon: CalendarDays,
+      inputType: "date",
+      onChange: (value) => updateDate("return", value)
     }
   ];
 }
@@ -1923,21 +2330,47 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
   const [tripType, setTripType] = useState<TripType>("Round trip");
   const [searchCount, setSearchCount] = useState(1);
   const [route, setRoute] = useState(defaultRoute);
+  const [dates, setDates] = useState(defaultDates);
   const activeTab = searchTabs.find((tab) => tab.id === activeKind) || searchTabs[0];
   const ActiveIcon = activeTab.icon;
-  const fields = searchFields(activeKind, route, tripType, searchCount);
+  const fields = searchFields(activeKind, route, tripType, searchCount, dates, updateRoute, updateDate);
   const showTripType = activeKind === "flights";
   const showSwap = activeKind === "flights" || activeKind === "bus";
   const perks = searchPerks(activeKind);
   const quantity = quantityCopy(activeKind, searchCount, tripType);
   const resultHref = useMemo(
-    () => localUrl(buildSearchPath(activeKind, route, tripType, searchCount)),
-    [activeKind, route, tripType, searchCount]
+    () => localUrl(buildSearchPath(activeKind, route, tripType, searchCount, dates)),
+    [activeKind, route, tripType, searchCount, dates]
   );
   const backendLabel = backendStatus?.mode === "cloudflare_bridge" ? "Backend ready" : "Bridge ready";
 
   function updateSearchCount(delta: number) {
     setSearchCount((current) => Math.max(1, Math.min(9, current + delta)));
+  }
+
+  function updateRoute(field: "from" | "to", value: string) {
+    setRoute((current) => {
+      if (field === "from") {
+        return {
+          ...current,
+          from: value,
+          fromCode: cityCode(value, current.fromCode)
+        };
+      }
+
+      return {
+        ...current,
+        to: value,
+        toCode: cityCode(value, current.toCode)
+      };
+    });
+  }
+
+  function updateDate(field: "depart" | "return", value: string) {
+    setDates((current) => ({
+      ...current,
+      [field]: value || current[field]
+    }));
   }
 
   function swapRoute() {
@@ -1947,6 +2380,14 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
       to: current.from,
       toCode: current.fromCode
     }));
+  }
+
+  function resetSearch() {
+    setActiveKind("flights");
+    setRoute(defaultRoute);
+    setDates(defaultDates);
+    setSearchCount(1);
+    setTripType("Round trip");
   }
 
   return (
@@ -2026,7 +2467,7 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
           </button>
         ) : null}
         {fields.slice(1).map((field) => (
-          <Field key={`${field.label}-${field.value}`} {...field} />
+          <Field key={field.label} {...field} />
         ))}
       </div>
 
@@ -2048,6 +2489,10 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
           <span>Best price guarantee</span>
           <span className="backend-proof">{backendLabel}</span>
         </div>
+        <button className="reset-search" type="button" onClick={resetSearch}>
+          <Repeat2 size={15} />
+          Reset
+        </button>
         <a className="primary-search" href={resultHref}>
           {activeTab.cta}
           <ArrowRight size={20} />
@@ -3181,11 +3626,15 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
 
 function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus: BackendStatus | null }) {
   const { currency } = useCurrency();
+  const searchContext = useMemo(() => readSearchContext(kind), [kind]);
   const [payload, setPayload] = useState<ResultsPayload>(() => fallbackResults(kind));
   const activePayload = payload.product === kind ? payload : fallbackResults(kind);
   const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
   const Icon = activeTab.icon;
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+  const displayLabel = contextualResultLabel(kind, searchContext);
+  const displaySummary = contextualResultSummary(kind, searchContext, activePayload.results.length);
+  const displayResults = activePayload.results.map((result) => contextualizeResultItem(kind, result, searchContext));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -3196,14 +3645,7 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
       return () => controller.abort();
     }
 
-    const params = new URLSearchParams({
-      type: kind,
-      from: defaultRoute.from,
-      to: defaultRoute.to,
-      start: defaultDates.depart,
-      end: defaultDates.return,
-      travelers: "1"
-    });
+    const params = resultRequestParams(kind, searchContext);
 
     fetch(`/api/travel/results?${params.toString()}`, {
       headers: { accept: "application/json" },
@@ -3224,7 +3666,7 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
       });
 
     return () => controller.abort();
-  }, [kind]);
+  }, [kind, searchContext.count, searchContext.end, searchContext.from, searchContext.rooms, searchContext.start, searchContext.to, searchContext.tripType]);
 
   return (
     <section className="results-page" aria-label={`${activeTab.label} results`}>
@@ -3237,8 +3679,8 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
           <span className="results-icon">
             <Icon size={25} />
           </span>
-          <h1>{activePayload.label}</h1>
-          <p>{activePayload.summary}</p>
+          <h1>{displayLabel}</h1>
+          <p>{displaySummary}</p>
         </div>
         <div className="results-status">
           <span>{bridgeLabel}</span>
@@ -3256,9 +3698,15 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
         ))}
       </nav>
 
+      <div className="results-context" aria-label="Current search details">
+        {searchContext.chips.map((chip) => (
+          <span key={chip}>{chip}</span>
+        ))}
+      </div>
+
       <div className="results-layout">
         <div className="results-list" aria-label={`${activeTab.label} options`}>
-          {activePayload.results.map((result) => (
+          {displayResults.map((result) => (
             <article key={result.id} className="result-card">
               <div className="result-media">
                 {result.image ? (
@@ -3298,7 +3746,7 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
               <div className="result-action">
                 <small>from</small>
                 <strong>{money(currency, result.price)}</strong>
-                <a href={result.reviewUrl || result.checkoutUrl}>
+                <a href={contextualReviewUrl(kind, result.id, searchContext)}>
                   Select
                   <ArrowRight size={17} />
                 </a>
@@ -3324,7 +3772,7 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
               Wallet ledger
             </span>
           </div>
-          <a href={activePayload.results[0]?.reviewUrl || reviewUrl(kind, activePayload.results[0]?.id)}>
+          <a href={contextualReviewUrl(kind, displayResults[0]?.id, searchContext)}>
             Continue with best option
             <ArrowRight size={18} />
           </a>
@@ -3339,8 +3787,23 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
   const searchParams = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
   const resultId = searchParams?.get("result") || null;
   const dealId = searchParams?.get("deal") || null;
+  const searchContext = useMemo(() => readSearchContext(kind), [kind]);
   const [session, setSession] = useState<ReviewSession>(() => fallbackReviewSession(kind, resultId, dealId));
-  const activeSession = session.product === kind ? session : fallbackReviewSession(kind, resultId, dealId);
+  const rawSession = session.product === kind ? session : fallbackReviewSession(kind, resultId, dealId);
+  const activeSession = useMemo(
+    () => contextualizeReviewSession(rawSession, kind, searchContext),
+    [
+      rawSession,
+      kind,
+      searchContext.count,
+      searchContext.end,
+      searchContext.from,
+      searchContext.rooms,
+      searchContext.start,
+      searchContext.to,
+      searchContext.tripType
+    ]
+  );
   const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
   const Icon = activeTab.icon;
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live handoff" : "Local preview";
@@ -3382,14 +3845,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       return () => controller.abort();
     }
 
-    const params = new URLSearchParams({
-      type: kind,
-      from: defaultRoute.from,
-      to: defaultRoute.to,
-      start: defaultDates.depart,
-      end: defaultDates.return,
-      travelers: "1"
-    });
+    const params = resultRequestParams(kind, searchContext);
 
     if (resultId) {
       params.set("result", resultId);
@@ -3415,10 +3871,10 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
         if (!controller.signal.aborted) {
           setSession(fallback);
         }
-      });
+    });
 
     return () => controller.abort();
-  }, [kind, resultId, dealId]);
+  }, [kind, resultId, dealId, searchContext.count, searchContext.end, searchContext.from, searchContext.rooms, searchContext.start, searchContext.to, searchContext.tripType]);
 
   async function createBookingDraft() {
     if (bookingSaving) {
@@ -3437,15 +3893,8 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       return intent;
     }
 
-    const params = new URLSearchParams({
-      type: kind,
-      result: activeSession.result.id,
-      from: defaultRoute.from,
-      to: defaultRoute.to,
-      start: defaultDates.depart,
-      end: defaultDates.return,
-      travelers: "1"
-    });
+    const params = resultRequestParams(kind, searchContext);
+    params.set("result", activeSession.result.id);
 
     if (activeSession.deal?.id) {
       params.set("deal", activeSession.deal.id);
@@ -3495,7 +3944,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
     <section className="review-page" aria-label="Booking review">
       <div className="review-hero">
         <div>
-          <a className="back-link" href={localUrl(buildSearchPath(kind))}>
+          <a className="back-link" href={resultListUrl(kind, searchContext)}>
             <ChevronLeft size={17} />
             Results
           </a>
@@ -3510,6 +3959,12 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
           <strong>{formatMode(activeSession.mode)}</strong>
           <small>{activeSession.provider}</small>
         </div>
+      </div>
+
+      <div className="review-context" aria-label="Booking search details">
+        {searchContext.chips.map((chip) => (
+          <span key={chip}>{chip}</span>
+        ))}
       </div>
 
       <div className="review-layout">
@@ -3836,20 +4291,33 @@ function Field({
   icon: Icon,
   label,
   value,
-  helper
+  helper,
+  inputType,
+  onChange
 }: {
   icon?: typeof CalendarDays;
   label: string;
   value: string;
   helper?: string;
+  inputType?: "text" | "date";
+  onChange?: (value: string) => void;
 }) {
   return (
-    <div className="field">
+    <label className={`field ${onChange ? "field-editable" : ""}`}>
       <span>{label}</span>
-      <strong>{value}</strong>
+      {onChange ? (
+        <input
+          type={inputType || "text"}
+          value={value}
+          aria-label={label}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <strong>{value}</strong>
+      )}
       {helper ? <small>{helper}</small> : null}
       {Icon ? <Icon size={16} /> : null}
-    </div>
+    </label>
   );
 }
 

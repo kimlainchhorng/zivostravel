@@ -623,6 +623,34 @@ button {
   font-size: 18px;
 }
 
+.field input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 0 30px 0 0;
+  border: 0;
+  color: #07162c;
+  background: transparent;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.2;
+  outline: none;
+}
+
+.field input[type="date"] {
+  font-size: 16px;
+}
+
+.field input:focus-visible {
+  color: #075af2;
+}
+
+.field-editable {
+  cursor: text;
+}
+
 .field small {
   display: block;
   margin-top: 3px;
@@ -685,6 +713,28 @@ button {
 
 .mini-proof svg {
   color: #075af2;
+}
+
+.reset-search {
+  display: inline-flex;
+  min-height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(33, 86, 139, 0.12);
+  border-radius: 999px;
+  padding: 0 13px;
+  color: #415b77;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.reset-search:hover {
+  color: #075af2;
+  background: #eef7ff;
 }
 
 .search-perks {
@@ -1396,6 +1446,27 @@ button {
     0 14px 30px rgba(7, 90, 242, 0.1);
 }
 
+.results-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.results-context span {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  padding: 0 13px;
+  border: 1px solid rgba(33, 86, 139, 0.1);
+  border-radius: 999px;
+  color: #415b77;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 8px 22px rgba(44, 102, 160, 0.06);
+  font-size: 13px;
+  font-weight: 850;
+}
+
 .results-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.36fr);
@@ -1637,6 +1708,27 @@ button {
   margin: 6px 0 4px;
   color: #075af2;
   font-size: 22px;
+}
+
+.review-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.review-context span {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid rgba(33, 86, 139, 0.1);
+  border-radius: 999px;
+  color: #415b77;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 22px rgba(44, 102, 160, 0.06);
+  font-size: 13px;
+  font-weight: 850;
 }
 
 .review-layout {
@@ -3886,6 +3978,11 @@ button {
     font-size: 14px;
   }
 
+  .field input,
+  .field input[type="date"] {
+    font-size: 14px;
+  }
+
   .field svg {
     right: 10px;
     bottom: 12px;
@@ -3917,6 +4014,11 @@ button {
 
   .mini-proof {
     display: none;
+  }
+
+  .reset-search {
+    width: 100%;
+    margin-bottom: 8px;
   }
 
   .primary-search {
@@ -4178,13 +4280,25 @@ button {
 
   .hero-layout {
     gap: 20px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .search-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     min-height: auto;
     height: auto;
     padding: 24px 18px;
     border-radius: 28px;
+  }
+
+  .feature-card {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .search-panel h1 {
@@ -4196,6 +4310,32 @@ button {
   .results-tabs,
   .build-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .flight-fields,
+  .flight-fields.no-swap {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .flight-fields .field,
+  .flight-fields.no-swap .field {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+    min-height: 64px;
+    border-right: 0;
+    border-top: 1px solid rgba(33, 86, 139, 0.12);
+  }
+
+  .flight-fields .field:first-child {
+    border-top: 0;
+  }
+
+  .flight-fields .swap-btn {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+    justify-self: center;
+    margin: -10px 0;
   }
 
   .results-hero {
