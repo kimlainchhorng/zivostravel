@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
 import {
   ArrowRight,
+  BadgeCheck,
   BedDouble,
   Bell,
   Bus,
@@ -11,6 +12,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   Circle,
   CircleUserRound,
   CreditCard,
@@ -20,6 +22,7 @@ import {
   Landmark,
   Link2,
   LockKeyhole,
+  MapPinned,
   Plane,
   ReceiptText,
   Repeat2,
@@ -29,6 +32,10 @@ import {
   WalletCards
 } from "lucide-react";
 import heroCardImage from "../public/assets/zivo-travel-hero-card.png";
+import routeNewYorkImage from "../public/assets/route-new-york.png";
+import routePhnomPenhImage from "../public/assets/route-phnom-penh-siem-reap.png";
+import routeTokyoImage from "../public/assets/route-tokyo.png";
+import tripBeachImage from "../public/assets/trip-beach-preview.png";
 import bridge from "../zivo-travel-bridge.json";
 import "./styles.css";
 
@@ -59,6 +66,28 @@ type QuotePayload = {
   payoutUrl: string;
   ssoUrl: string;
   steps: Array<{ label: string; status: string }>;
+};
+type ResultItem = {
+  id: string;
+  title: string;
+  provider: string;
+  detail: string;
+  time: string;
+  duration: string;
+  price: number;
+  rating: string;
+  tags: string[];
+  image?: string;
+  checkoutUrl: string;
+};
+type ResultsPayload = {
+  product: SearchKind;
+  label: string;
+  summary: string;
+  currency: string;
+  provider: string;
+  mode: string;
+  results: ResultItem[];
 };
 
 const searchTabs = [
@@ -127,22 +156,19 @@ const routes = [
     from: "Phnom Penh",
     to: "Siem Reap",
     price: "$48",
-    image:
-      "https://images.unsplash.com/photo-1563492065599-3520f775eeed?auto=format&fit=crop&w=900&q=80"
+    image: routePhnomPenhImage
   },
   {
     from: "New York",
     to: "United States",
     price: "$499",
-    image:
-      "https://images.unsplash.com/photo-1485871981521-5b1fd3805eee?auto=format&fit=crop&w=900&q=80"
+    image: routeNewYorkImage
   },
   {
     from: "Tokyo",
     to: "Japan",
     price: "$799",
-    image:
-      "https://images.unsplash.com/photo-1492571350019-22de08371fd3?auto=format&fit=crop&w=900&q=80"
+    image: routeTokyoImage
   }
 ];
 
@@ -177,8 +203,172 @@ const connectionItems = [
   { label: "SEO", value: "Sitemap live", icon: Link2 }
 ];
 
+const resultCatalog: Record<SearchKind, Omit<ResultItem, "checkoutUrl">[]> = {
+  flights: [
+    {
+      id: "flight-angkor-direct",
+      title: "Morning direct",
+      provider: "Zivo Air",
+      detail: "PNH to REP",
+      time: "08:15 AM",
+      duration: "55 min",
+      price: 48,
+      rating: "Fastest",
+      tags: ["Direct", "Carry-on included", "Mobile boarding"]
+    },
+    {
+      id: "flight-flex-evening",
+      title: "Flexible evening",
+      provider: "Cambodia Sky",
+      detail: "PNH to REP",
+      time: "05:40 PM",
+      duration: "1 hr 5 min",
+      price: 56,
+      rating: "Flexible",
+      tags: ["Free change", "Seat choice", "Reward eligible"]
+    },
+    {
+      id: "flight-value-midday",
+      title: "Value midday",
+      provider: "Mekong Wings",
+      detail: "PNH to REP",
+      time: "12:25 PM",
+      duration: "1 hr",
+      price: 44,
+      rating: "Best value",
+      tags: ["Low fare", "Light bag", "Instant confirm"]
+    }
+  ],
+  hotels: [
+    {
+      id: "hotel-riverside-suite",
+      title: "Riverside suite",
+      provider: "Zivo Stays",
+      detail: "Siem Reap center",
+      time: "Jun 15 - Jun 18",
+      duration: "3 nights",
+      price: 126,
+      rating: "4.8 guest score",
+      tags: ["Breakfast", "Pool", "Pay later"],
+      image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=900&q=80"
+    },
+    {
+      id: "hotel-temple-garden",
+      title: "Temple garden hotel",
+      provider: "Angkor Partner",
+      detail: "Near night market",
+      time: "Jun 15 - Jun 18",
+      duration: "3 nights",
+      price: 144,
+      rating: "Guest favorite",
+      tags: ["Airport pickup", "Spa", "Free cancel"],
+      image: "https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=900&q=80"
+    },
+    {
+      id: "hotel-city-light",
+      title: "City light stay",
+      provider: "Zivo Stays",
+      detail: "Old French Quarter",
+      time: "Jun 15 - Jun 18",
+      duration: "3 nights",
+      price: 98,
+      rating: "Smart price",
+      tags: ["Workspace", "Breakfast", "Rewards"],
+      image: "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&w=900&q=80"
+    }
+  ],
+  cars: [
+    {
+      id: "car-compact",
+      title: "Compact automatic",
+      provider: "Zivo Rentals",
+      detail: "Siem Reap downtown",
+      time: "Jun 15, 10:00 AM",
+      duration: "3 days",
+      price: 84,
+      rating: "Best value",
+      tags: ["Unlimited km", "Insurance ready", "Easy pickup"]
+    },
+    {
+      id: "car-suv",
+      title: "Family SUV",
+      provider: "Airport Cars",
+      detail: "REP airport",
+      time: "Jun 15, 11:00 AM",
+      duration: "3 days",
+      price: 138,
+      rating: "Roomy",
+      tags: ["5 seats", "Large bags", "Free cancel"]
+    },
+    {
+      id: "car-driver",
+      title: "Car with driver",
+      provider: "Angkor Driver",
+      detail: "Hotel pickup",
+      time: "Jun 15, 09:00 AM",
+      duration: "Full day",
+      price: 62,
+      rating: "Local guide",
+      tags: ["Private", "Temple route", "Cashless"]
+    }
+  ],
+  bus: [
+    {
+      id: "bus-express",
+      title: "Express coach",
+      provider: "Mekong Express",
+      detail: "Phnom Penh to Siem Reap",
+      time: "07:30 AM",
+      duration: "5 hr 45 min",
+      price: 18,
+      rating: "Best seller",
+      tags: ["AC", "Reserved seat", "Mobile ticket"]
+    },
+    {
+      id: "bus-luxury",
+      title: "Luxury minibus",
+      provider: "Angkor VIP",
+      detail: "Hotel area pickup",
+      time: "09:00 AM",
+      duration: "5 hr 20 min",
+      price: 24,
+      rating: "Comfort",
+      tags: ["Wide seat", "Snack", "Fast route"]
+    },
+    {
+      id: "bus-night",
+      title: "Night sleeper",
+      provider: "Zivo Bus",
+      detail: "Central station",
+      time: "11:30 PM",
+      duration: "6 hr",
+      price: 21,
+      rating: "Overnight",
+      tags: ["Sleeper", "USB", "Instant confirm"]
+    }
+  ]
+};
+
 function engineUrl(path: string) {
   return new URL(path, engineOrigin).toString();
+}
+
+function localUrl(path: string) {
+  return path;
+}
+
+function currentRouteKind(): SearchKind | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const route = window.location.pathname.replace(/^\/+/, "").split("/")[0];
+
+  if (route === "flights" || route === "hotels" || route === "cars" || route === "bus") {
+    return route;
+  }
+
+  return null;
 }
 
 function canUseTravelApi() {
@@ -187,6 +377,77 @@ function canUseTravelApi() {
   }
 
   return !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function checkoutUrl(kind: SearchKind, resultId?: string) {
+  const params = new URLSearchParams({
+    product: kind,
+    from: defaultRoute.from,
+    to: defaultRoute.to,
+    start: defaultDates.depart,
+    end: defaultDates.return,
+    travelers: "1"
+  });
+
+  if (resultId) {
+    params.set("result", resultId);
+  }
+
+  return engineUrl(`/travel/checkout?${params.toString()}`);
+}
+
+function resultLabel(kind: SearchKind) {
+  if (kind === "hotels") {
+    return "Hotels in Siem Reap";
+  }
+
+  if (kind === "cars") {
+    return "Rental cars in Siem Reap";
+  }
+
+  if (kind === "bus") {
+    return "Buses from Phnom Penh to Siem Reap";
+  }
+
+  return "Flights from Phnom Penh to Siem Reap";
+}
+
+function resultSummary(kind: SearchKind) {
+  if (kind === "hotels") {
+    return "3 stays ready for Jun 15 - Jun 18, 2026";
+  }
+
+  if (kind === "cars") {
+    return "3 rental options ready for pickup in Siem Reap";
+  }
+
+  if (kind === "bus") {
+    return "3 bus departures ready for Jun 15, 2026";
+  }
+
+  return "3 flight options ready for Jun 15, 2026";
+}
+
+function fallbackResults(kind: SearchKind): ResultsPayload {
+  return {
+    product: kind,
+    label: resultLabel(kind),
+    summary: resultSummary(kind),
+    currency: "USD",
+    provider: "zivosmedia",
+    mode: "local_results",
+    results: resultCatalog[kind].map((result) => ({
+      ...result,
+      checkoutUrl: checkoutUrl(kind, result.id)
+    }))
+  };
+}
+
+function formatMode(mode: string) {
+  return mode
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripType = "Round trip") {
@@ -271,6 +532,7 @@ function fallbackQuote(kind: SearchKind): QuotePayload {
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const routeKind = currentRouteKind();
 
   useEffect(() => {
     let cancelled = false;
@@ -323,7 +585,7 @@ function App() {
   return (
     <main className="travel-page">
       <header className="topbar" aria-label="Zivo Travel navigation">
-        <a className="brand" href="/" aria-label="Zivo Travel home">
+        <a className="brand" href={localUrl("/")} aria-label="Zivo Travel home">
           <span className="brand-mark">Z</span>
           <span className="brand-text">
             <strong>Zivo</strong>
@@ -333,7 +595,7 @@ function App() {
 
         <nav className="nav-links" aria-label="Primary">
           {navLinks.map(({ label, href }) => (
-            <a key={label} href={engineUrl(href)}>
+            <a key={label} href={localUrl(href)}>
               {label}
             </a>
           ))}
@@ -369,32 +631,38 @@ function App() {
         </div>
       </header>
 
-      <section className="hero-layout" aria-label="Travel search and feature">
-        <SearchPanel backendStatus={backendStatus} />
-        <FeatureHero />
-      </section>
+      {routeKind ? (
+        <ResultsPage kind={routeKind} backendStatus={backendStatus} />
+      ) : (
+        <>
+          <section className="hero-layout" aria-label="Travel search and feature">
+            <SearchPanel backendStatus={backendStatus} />
+            <FeatureHero />
+          </section>
 
-      <section className="content-grid" aria-label="Travel planning">
-        <PopularRoutes />
-        <BuildTrip />
-        <MyTrips />
-      </section>
+          <section className="content-grid" aria-label="Travel planning">
+            <PopularRoutes />
+            <BuildTrip />
+            <MyTrips />
+          </section>
 
-      <section className="trust-strip" aria-label="Booking benefits">
-        {trustItems.map(({ title, body, icon: Icon }) => (
-          <article key={title} className="trust-item">
-            <span>
-              <Icon size={22} />
-            </span>
-            <div>
-              <strong>{title}</strong>
-              <p>{body}</p>
-            </div>
-          </article>
-        ))}
-      </section>
+          <section className="trust-strip" aria-label="Booking benefits">
+            {trustItems.map(({ title, body, icon: Icon }) => (
+              <article key={title} className="trust-item">
+                <span>
+                  <Icon size={22} />
+                </span>
+                <div>
+                  <strong>{title}</strong>
+                  <p>{body}</p>
+                </div>
+              </article>
+            ))}
+          </section>
 
-      <BookingWorkflow backendStatus={backendStatus} />
+          <BookingWorkflow backendStatus={backendStatus} />
+        </>
+      )}
     </main>
   );
 }
@@ -404,59 +672,11 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
   const [tripType, setTripType] = useState<TripType>("Round trip");
   const [route, setRoute] = useState(defaultRoute);
   const activeTab = searchTabs.find((tab) => tab.id === activeKind) || searchTabs[0];
-  const fallbackHandoff = useMemo(
-    () => engineUrl(buildSearchPath(activeKind, route, tripType)),
+  const resultHref = useMemo(
+    () => localUrl(buildSearchPath(activeKind, route, tripType)),
     [activeKind, route, tripType]
   );
-  const handoffKey = `${activeKind}|${route.from}|${route.to}|${tripType}`;
-  const [handoff, setHandoff] = useState({ key: handoffKey, url: fallbackHandoff });
-  const resolvedHandoff = handoff.key === handoffKey ? handoff.url : fallbackHandoff;
   const backendLabel = backendStatus?.mode === "cloudflare_bridge" ? "Backend ready" : "Bridge ready";
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const params = new URLSearchParams({
-      type: activeKind,
-      from: route.from,
-      to: route.to,
-      start: defaultDates.depart,
-      end: defaultDates.return,
-      travelers: "1",
-      tripType
-    });
-
-    setHandoff({ key: handoffKey, url: fallbackHandoff });
-
-    if (!canUseTravelApi()) {
-      return () => controller.abort();
-    }
-
-    fetch(`/api/travel/search?${params.toString()}`, {
-      headers: { accept: "application/json" },
-      signal: controller.signal
-    })
-      .then((response) => {
-        const contentType = response.headers.get("content-type") || "";
-
-        if (!response.ok || !contentType.includes("application/json")) {
-          throw new Error("Travel search bridge unavailable in local asset mode");
-        }
-
-        return response.json() as Promise<{ handoffUrl?: string }>;
-      })
-      .then((payload) => {
-        if (payload.handoffUrl) {
-          setHandoff({ key: handoffKey, url: payload.handoffUrl });
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setHandoff({ key: handoffKey, url: fallbackHandoff });
-        }
-      });
-
-    return () => controller.abort();
-  }, [activeKind, fallbackHandoff, handoffKey, route, tripType]);
 
   function swapRoute() {
     setRoute((current) => ({
@@ -537,7 +757,7 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
           <span>Best price guarantee</span>
           <span className="backend-proof">{backendLabel}</span>
         </div>
-        <a className="primary-search" href={resolvedHandoff}>
+        <a className="primary-search" href={resultHref}>
           {activeTab.cta}
           <ArrowRight size={20} />
         </a>
@@ -548,7 +768,7 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
 
 function FeatureHero() {
   return (
-    <a className="feature-card" href={engineUrl("/zivo-travel")} aria-label="Start booking with Zivo Travel">
+    <a className="feature-card" href={localUrl(searchTabs[0].href)} aria-label="Start booking with Zivo Travel">
       <img
         className="feature-image"
         src={heroCardImage}
@@ -567,7 +787,7 @@ function PopularRoutes() {
           <a
             key={`${route.from}-${route.to}`}
             className="route-card"
-            href={engineUrl(`/flights?from=${encodeURIComponent(route.from)}&to=${encodeURIComponent(route.to)}&start=2026-06-15&end=2026-06-18&travelers=1`)}
+            href={localUrl(`/flights?from=${encodeURIComponent(route.from)}&to=${encodeURIComponent(route.to)}&start=2026-06-15&end=2026-06-18&travelers=1`)}
           >
             <img src={route.image} alt={`${route.from} to ${route.to}`} />
             <button aria-label={`Open ${route.from} route`}>
@@ -594,7 +814,7 @@ function BuildTrip() {
       <p>Mix and match to create your perfect journey.</p>
       <div className="build-grid">
         {tripProducts.map(({ label, body, icon: Icon, color }) => (
-          <a key={label} className="mini-service" href={engineUrl(searchTabs.find((tab) => tab.label === label)?.href || "/zivo-travel")}>
+          <a key={label} className="mini-service" href={localUrl(searchTabs.find((tab) => tab.label === label)?.href || "/")}>
             <Icon className={color} size={25} />
             <div>
               <strong>{label}</strong>
@@ -603,7 +823,7 @@ function BuildTrip() {
           </a>
         ))}
       </div>
-      <a className="bundle-card" href={engineUrl("/deals")}>
+      <a className="bundle-card" href={localUrl("/deals")}>
         <div>
           <strong>Save more with bundle deals</strong>
           <span>Flight + Hotel = Extra savings</span>
@@ -619,10 +839,7 @@ function MyTrips() {
     <article className="mytrip-card">
       <SectionHeader title="My trips" />
       <div className="trip-preview">
-        <img
-          src="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=900&q=80"
-          alt="Beach trip"
-        />
+        <img src={tripBeachImage} alt="Beach trip" />
         <span>Upcoming</span>
       </div>
       <div className="trip-details">
@@ -647,6 +864,162 @@ function MyTrips() {
         <span />
       </div>
     </article>
+  );
+}
+
+function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus: BackendStatus | null }) {
+  const [payload, setPayload] = useState<ResultsPayload>(() => fallbackResults(kind));
+  const activePayload = payload.product === kind ? payload : fallbackResults(kind);
+  const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
+  const Icon = activeTab.icon;
+  const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fallback = fallbackResults(kind);
+    setPayload(fallback);
+
+    if (!canUseTravelApi()) {
+      return () => controller.abort();
+    }
+
+    const params = new URLSearchParams({
+      type: kind,
+      from: defaultRoute.from,
+      to: defaultRoute.to,
+      start: defaultDates.depart,
+      end: defaultDates.return,
+      travelers: "1"
+    });
+
+    fetch(`/api/travel/results?${params.toString()}`, {
+      headers: { accept: "application/json" },
+      signal: controller.signal
+    })
+      .then((response) => {
+        if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+          throw new Error("Travel results bridge unavailable");
+        }
+
+        return response.json() as Promise<ResultsPayload>;
+      })
+      .then((results) => setPayload(results))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setPayload(fallback);
+        }
+      });
+
+    return () => controller.abort();
+  }, [kind]);
+
+  return (
+    <section className="results-page" aria-label={`${activeTab.label} results`}>
+      <div className="results-hero">
+        <div>
+          <a className="back-link" href={localUrl("/")}>
+            <ChevronLeft size={17} />
+            Search
+          </a>
+          <span className="results-icon">
+            <Icon size={25} />
+          </span>
+          <h1>{activePayload.label}</h1>
+          <p>{activePayload.summary}</p>
+        </div>
+        <div className="results-status">
+          <span>{bridgeLabel}</span>
+          <strong>{formatMode(activePayload.mode)}</strong>
+          <small>{activePayload.provider}</small>
+        </div>
+      </div>
+
+      <nav className="results-tabs" aria-label="Travel result types">
+        {searchTabs.map(({ id, label, icon: TabIcon, href }) => (
+          <a key={id} className={id === kind ? "active" : ""} href={localUrl(href)}>
+            <TabIcon size={18} />
+            {label}
+          </a>
+        ))}
+      </nav>
+
+      <div className="results-layout">
+        <div className="results-list" aria-label={`${activeTab.label} options`}>
+          {activePayload.results.map((result) => (
+            <article key={result.id} className="result-card">
+              <div className="result-media">
+                {result.image ? (
+                  <img src={result.image} alt={result.title} />
+                ) : (
+                  <span>
+                    <Icon size={32} />
+                  </span>
+                )}
+              </div>
+              <div className="result-main">
+                <div>
+                  <span className="provider">{result.provider}</span>
+                  <h2>{result.title}</h2>
+                  <p>{result.detail}</p>
+                </div>
+                <div className="result-facts">
+                  <span>
+                    <Clock3 size={15} />
+                    {result.time}
+                  </span>
+                  <span>
+                    <MapPinned size={15} />
+                    {result.duration}
+                  </span>
+                  <span>
+                    <BadgeCheck size={15} />
+                    {result.rating}
+                  </span>
+                </div>
+                <div className="result-tags">
+                  {result.tags.map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="result-action">
+                <small>from</small>
+                <strong>
+                  {activePayload.currency} ${result.price}
+                </strong>
+                <a href={result.checkoutUrl}>
+                  Select
+                  <ArrowRight size={17} />
+                </a>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <aside className="results-aside" aria-label="Trip checkout summary">
+          <h2>Ready to book</h2>
+          <p>Choose an option, then continue with secure account access, payments, wallet, and payout records on Zivos Media.</p>
+          <div>
+            <span>
+              <ShieldCheck size={16} />
+              Secure checkout
+            </span>
+            <span>
+              <CreditCard size={16} />
+              Saved payment methods
+            </span>
+            <span>
+              <WalletCards size={16} />
+              Wallet ledger
+            </span>
+          </div>
+          <a href={activePayload.results[0]?.checkoutUrl || checkoutUrl(kind)}>
+            Continue with best option
+            <ArrowRight size={18} />
+          </a>
+        </aside>
+      </div>
+    </section>
   );
 }
 
@@ -812,7 +1185,7 @@ function SectionHeader({ title }: { title: string }) {
     <div className="section-head">
       <h2>{title}</h2>
       <div>
-        <a href={engineUrl("/zivo-travel")}>View all</a>
+        <a href={localUrl(searchTabs[0].href)}>View all</a>
         <button aria-label="Previous">
           <ChevronLeft size={16} />
         </button>

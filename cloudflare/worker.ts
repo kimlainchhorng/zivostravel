@@ -12,6 +12,17 @@ const securityHeaders = {
 };
 
 type SearchKind = "flights" | "hotels" | "cars" | "bus";
+type ResultTemplate = {
+  id: string;
+  title: string;
+  provider: string;
+  detail: string;
+  time: string;
+  duration: string;
+  price: number;
+  rating: string;
+  tags: string[];
+};
 
 const travelServices: SearchKind[] = ["flights", "hotels", "cars", "bus"];
 const routePaths: Record<SearchKind | "checkout" | "wallet" | "paymentMethods" | "payout" | "support" | "authHandoff", string> = {
@@ -32,6 +43,29 @@ const quoteDefaults: Record<SearchKind, { label: string; total: number }> = {
   hotels: { label: "Siem Reap hotel stay", total: 126 },
   cars: { label: "Siem Reap rental car", total: 84 },
   bus: { label: "Phnom Penh to Siem Reap bus", total: 18 },
+};
+
+const resultCatalog: Record<SearchKind, ResultTemplate[]> = {
+  flights: [
+    { id: "flight-angkor-direct", title: "Morning direct", provider: "Zivo Air", detail: "PNH to REP", time: "08:15 AM", duration: "55 min", price: 48, rating: "Fastest", tags: ["Direct", "Carry-on included", "Mobile boarding"] },
+    { id: "flight-flex-evening", title: "Flexible evening", provider: "Cambodia Sky", detail: "PNH to REP", time: "05:40 PM", duration: "1 hr 5 min", price: 56, rating: "Flexible", tags: ["Free change", "Seat choice", "Reward eligible"] },
+    { id: "flight-value-midday", title: "Value midday", provider: "Mekong Wings", detail: "PNH to REP", time: "12:25 PM", duration: "1 hr", price: 44, rating: "Best value", tags: ["Low fare", "Light bag", "Instant confirm"] },
+  ],
+  hotels: [
+    { id: "hotel-riverside-suite", title: "Riverside suite", provider: "Zivo Stays", detail: "Siem Reap center", time: "Jun 15 - Jun 18", duration: "3 nights", price: 126, rating: "4.8 guest score", tags: ["Breakfast", "Pool", "Pay later"] },
+    { id: "hotel-temple-garden", title: "Temple garden hotel", provider: "Angkor Partner", detail: "Near night market", time: "Jun 15 - Jun 18", duration: "3 nights", price: 144, rating: "Guest favorite", tags: ["Airport pickup", "Spa", "Free cancel"] },
+    { id: "hotel-city-light", title: "City light stay", provider: "Zivo Stays", detail: "Old French Quarter", time: "Jun 15 - Jun 18", duration: "3 nights", price: 98, rating: "Smart price", tags: ["Workspace", "Breakfast", "Rewards"] },
+  ],
+  cars: [
+    { id: "car-compact", title: "Compact automatic", provider: "Zivo Rentals", detail: "Siem Reap downtown", time: "Jun 15, 10:00 AM", duration: "3 days", price: 84, rating: "Best value", tags: ["Unlimited km", "Insurance ready", "Easy pickup"] },
+    { id: "car-suv", title: "Family SUV", provider: "Airport Cars", detail: "REP airport", time: "Jun 15, 11:00 AM", duration: "3 days", price: 138, rating: "Roomy", tags: ["5 seats", "Large bags", "Free cancel"] },
+    { id: "car-driver", title: "Car with driver", provider: "Angkor Driver", detail: "Hotel pickup", time: "Jun 15, 09:00 AM", duration: "Full day", price: 62, rating: "Local guide", tags: ["Private", "Temple route", "Cashless"] },
+  ],
+  bus: [
+    { id: "bus-express", title: "Express coach", provider: "Mekong Express", detail: "Phnom Penh to Siem Reap", time: "07:30 AM", duration: "5 hr 45 min", price: 18, rating: "Best seller", tags: ["AC", "Reserved seat", "Mobile ticket"] },
+    { id: "bus-luxury", title: "Luxury minibus", provider: "Angkor VIP", detail: "Hotel area pickup", time: "09:00 AM", duration: "5 hr 20 min", price: 24, rating: "Comfort", tags: ["Wide seat", "Snack", "Fast route"] },
+    { id: "bus-night", title: "Night sleeper", provider: "Zivo Bus", detail: "Central station", time: "11:30 PM", duration: "6 hr", price: 21, rating: "Overnight", tags: ["Sleeper", "USB", "Instant confirm"] },
+  ],
 };
 
 const allowedApiOrigins = new Set([
@@ -132,24 +166,44 @@ function buildHandoffUrl(requestUrl: URL, env: Env, kind: SearchKind) {
   return target.toString();
 }
 
-function buildQuote(requestUrl: URL, env: Env, kind: SearchKind) {
-  const defaults = quoteDefaults[kind];
+function resultLabel(kind: SearchKind) {
+  if (kind === "hotels") return "Hotels in Siem Reap";
+  if (kind === "cars") return "Rental cars in Siem Reap";
+  if (kind === "bus") return "Buses from Phnom Penh to Siem Reap";
+  return "Flights from Phnom Penh to Siem Reap";
+}
+
+function resultSummary(kind: SearchKind) {
+  if (kind === "hotels") return "3 stays ready for Jun 15 - Jun 18, 2026";
+  if (kind === "cars") return "3 rental options ready for pickup in Siem Reap";
+  if (kind === "bus") return "3 bus departures ready for Jun 15, 2026";
+  return "3 flight options ready for Jun 15, 2026";
+}
+
+function buildCheckoutUrl(requestUrl: URL, env: Env, kind: SearchKind, resultId?: string) {
   const checkout = new URL(routePaths.checkout, platformOrigin(env));
-  const from = requestUrl.searchParams.get("from") || "Phnom Penh";
-  const to = requestUrl.searchParams.get("to") || "Siem Reap";
-  const start = requestUrl.searchParams.get("start") || "2026-06-15";
-  const end = requestUrl.searchParams.get("end") || "2026-06-18";
 
   checkout.searchParams.set("product", kind);
-  checkout.searchParams.set("from", from);
-  checkout.searchParams.set("to", to);
-  checkout.searchParams.set("start", start);
-  checkout.searchParams.set("end", end);
+  checkout.searchParams.set("from", requestUrl.searchParams.get("from") || "Phnom Penh");
+  checkout.searchParams.set("to", requestUrl.searchParams.get("to") || "Siem Reap");
+  checkout.searchParams.set("start", requestUrl.searchParams.get("start") || "2026-06-15");
+  checkout.searchParams.set("end", requestUrl.searchParams.get("end") || "2026-06-18");
   checkout.searchParams.set("travelers", requestUrl.searchParams.get("travelers") || "1");
+
+  if (resultId) {
+    checkout.searchParams.set("result", resultId);
+  }
+
+  return checkout.toString();
+}
+
+function buildQuote(requestUrl: URL, env: Env, kind: SearchKind) {
+  const defaults = quoteDefaults[kind];
+  const checkoutUrl = buildCheckoutUrl(requestUrl, env, kind);
 
   const auth = new URL(routePaths.authHandoff, platformOrigin(env));
   auth.searchParams.set("app", "zivo-travel");
-  auth.searchParams.set("redirect", `${routePaths.checkout}?${checkout.searchParams.toString()}`);
+  auth.searchParams.set("redirect", new URL(checkoutUrl).pathname + new URL(checkoutUrl).search);
 
   return {
     app: "zivo-travel",
@@ -159,7 +213,7 @@ function buildQuote(requestUrl: URL, env: Env, kind: SearchKind) {
     currency: "USD",
     total: defaults.total,
     provider: "zivosmedia",
-    checkoutUrl: checkout.toString(),
+    checkoutUrl,
     paymentUrl: new URL(routePaths.paymentMethods, platformOrigin(env)).toString(),
     walletUrl: new URL(routePaths.wallet, platformOrigin(env)).toString(),
     payoutUrl: new URL(routePaths.payout, platformOrigin(env)).toString(),
@@ -171,6 +225,23 @@ function buildQuote(requestUrl: URL, env: Env, kind: SearchKind) {
       { label: "Pay", status: "handoff" },
       { label: "Confirm", status: "handoff" },
     ],
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function buildResults(requestUrl: URL, env: Env, kind: SearchKind) {
+  return {
+    app: "zivo-travel",
+    mode: "cloudflare_results",
+    product: kind,
+    label: resultLabel(kind),
+    summary: resultSummary(kind),
+    currency: "USD",
+    provider: "zivosmedia",
+    results: resultCatalog[kind].map((result) => ({
+      ...result,
+      checkoutUrl: buildCheckoutUrl(requestUrl, env, kind, result.id),
+    })),
     checkedAt: new Date().toISOString(),
   };
 }
@@ -239,6 +310,12 @@ export default {
       const kind = normalizeSearchKind(url.searchParams.get("type"));
 
       return json(request, buildQuote(url, env, kind));
+    }
+
+    if (url.pathname === "/api/travel/results") {
+      const kind = normalizeSearchKind(url.searchParams.get("type"));
+
+      return json(request, buildResults(url, env, kind));
     }
 
     if (url.pathname === "/api/travel/search") {
