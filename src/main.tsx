@@ -1819,6 +1819,35 @@ function workflowStepLabel(label: string) {
   return label;
 }
 
+function handoffSourceLabel(source: string | null) {
+  if (source === "zivo-admin") {
+    return "Zivo Admin";
+  }
+
+  return "Zivos Media";
+}
+
+function isLiveBridgeMode(value?: string) {
+  return value === "supabase" || value === "supabase_insert";
+}
+
+function handoffStatusItems(backendStatus: BackendStatus | null) {
+  return [
+    {
+      label: "Search",
+      value: isLiveBridgeMode(backendStatus?.searchTelemetry) ? "Live sync" : "Preview"
+    },
+    {
+      label: "Booking",
+      value: isLiveBridgeMode(backendStatus?.bookingPersistence) ? "Draft sync" : "Preview"
+    },
+    {
+      label: "Support",
+      value: isLiveBridgeMode(backendStatus?.supportPersistence) ? "Ticket sync" : "Preview"
+    }
+  ];
+}
+
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
   const [savedTripCount, setSavedTripCount] = useState(() => readSavedTrips().length);
@@ -1836,6 +1865,8 @@ function App() {
   const path = currentPath();
   const handoffSource = new URLSearchParams(window.location.search).get("source");
   const isConnectedHandoff = handoffSource === "zivosmedia" || handoffSource === "zivo-admin";
+  const handoffLabel = handoffSourceLabel(handoffSource);
+  const handoffStatuses = handoffStatusItems(backendStatus);
   const zivoAdminUrl = (import.meta.env.VITE_ZIVO_ADMIN_URL as string) || "https://admin.zivosmedia.com";
   const zivosmediaUrl = (import.meta.env.VITE_ZIVOSMEDIA_URL as string) || "https://zivosmedia.com";
 
@@ -1962,16 +1993,38 @@ function App() {
   return (
     <CurrencyContext.Provider value={{ currency, setCurrency }}>
       <main className="travel-page">
-      {isConnectedHandoff && (
-        <div role="region" aria-label="Connected workflow from ZivosMedia" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, margin: "12px 16px", padding: "10px 14px", borderRadius: 12, background: "linear-gradient(90deg,#eef5ff,#e6f0ff)", border: "1px solid #cfe0ff", color: "#07162c" }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>Connected from ZivosMedia · booking</span>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          <a href={zivosmediaUrl} style={{ display: "inline-flex", alignItems: "center", padding: "8px 12px", borderRadius: 10, background: "#ffffff", border: "1px solid #cfe0ff", color: "#075af2", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>Return to ZivosMedia</a>
-          <a href={`${zivoAdminUrl}/#travel-ops`} style={{ display: "inline-flex", alignItems: "center", padding: "8px 12px", borderRadius: 10, background: "#ffffff", border: "1px solid #cfe0ff", color: "#075af2", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>Open Zivo Admin queue</a>
-          <a href={localUrl("/trips")} style={{ display: "inline-flex", alignItems: "center", padding: "8px 12px", borderRadius: 10, background: "linear-gradient(180deg,#126bff,#064ce8)", border: "1px solid #064ce8", color: "#ffffff", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>Continue booking</a>
-        </div>
-      </div>
-      )}
+        {isConnectedHandoff && (
+          <section className="handoff-banner" aria-label={`Connected workflow from ${handoffLabel}`}>
+            <div className="handoff-copy">
+              <span className="handoff-icon">
+                <Link2 size={18} />
+              </span>
+              <div>
+                <span>Connected from {handoffLabel}</span>
+                <strong>Travel booking handoff</strong>
+              </div>
+            </div>
+            <div className="handoff-status" aria-label="Travel bridge status">
+              {handoffStatuses.map((item) => (
+                <span
+                  key={item.label}
+                  className={item.value.includes("sync") ? "ready" : ""}
+                >
+                  <b>{item.label}</b>
+                  {item.value}
+                </span>
+              ))}
+            </div>
+            <div className="handoff-actions">
+              <a href={zivosmediaUrl}>Return to Zivos Media</a>
+              <a href={`${zivoAdminUrl}/#travel-ops`}>Admin queue</a>
+              <a className="primary" href={localUrl("/trips")}>
+                Continue booking
+                <ArrowRight size={16} />
+              </a>
+            </div>
+          </section>
+        )}
       <header className="topbar" aria-label="Zivo Travel navigation">
         <a className="brand" href={localUrl("/")} aria-label="Zivo Travel home">
           <span className="brand-mark">Z</span>
