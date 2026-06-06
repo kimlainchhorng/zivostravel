@@ -43,6 +43,7 @@ const engineOrigin =
   import.meta.env.VITE_ZIVO_PLATFORM_ORIGIN || bridge.platformOrigin || "https://zivosmedia.com";
 
 type SearchKind = "flights" | "hotels" | "cars" | "bus";
+type CurrencyCode = "USD" | "KHR" | "THB";
 type TripType = "Round trip" | "One way" | "Multi-city";
 type BackendStatus = {
   mode: string;
@@ -164,6 +165,7 @@ type DealPackage = {
   body: string;
   price: number;
   save: string;
+  saveAmount?: number;
   highlight: string;
   image?: string;
   services: SearchKind[];
@@ -196,6 +198,24 @@ type AdminQueuePayload = {
   queue: AdminQueueRow[];
   checkedAt: string;
 };
+
+const currencyOptions: Array<{ code: CurrencyCode; label: string; rate: number; symbol: string; decimals: number }> = [
+  { code: "USD", label: "US Dollar", rate: 1, symbol: "$", decimals: 2 },
+  { code: "KHR", label: "Cambodian Riel", rate: 4100, symbol: "៛", decimals: 0 },
+  { code: "THB", label: "Thai Baht", rate: 36, symbol: "฿", decimals: 0 }
+];
+
+const CurrencyContext = React.createContext<{
+  currency: CurrencyCode;
+  setCurrency: (currency: CurrencyCode) => void;
+}>({
+  currency: "USD",
+  setCurrency: () => undefined
+});
+
+function useCurrency() {
+  return React.useContext(CurrencyContext);
+}
 type WalletSummaryPayload = {
   app: string;
   mode: string;
@@ -279,24 +299,25 @@ const defaultDates = {
 
 const savedTripsKey = "zivo-travel-booking-drafts";
 const savedTripsEvent = "zivo-travel-bookings-updated";
+const currencyKey = "zivo-travel-currency";
 
 const routes = [
   {
     from: "Phnom Penh",
     to: "Siem Reap",
-    price: "$48",
+    price: 48,
     image: routePhnomPenhImage
   },
   {
     from: "New York",
     to: "United States",
-    price: "$499",
+    price: 499,
     image: routeNewYorkImage
   },
   {
     from: "Tokyo",
     to: "Japan",
-    price: "$799",
+    price: 799,
     image: routeTokyoImage
   }
 ];
@@ -339,6 +360,7 @@ const dealPackages: DealPackage[] = [
     body: "Flight + hotel for a three-night Siem Reap escape with flexible change support.",
     price: 168,
     save: "Save $28",
+    saveAmount: 28,
     highlight: "Best starter trip",
     image: routePhnomPenhImage,
     services: ["flights", "hotels"],
@@ -351,6 +373,7 @@ const dealPackages: DealPackage[] = [
     body: "Hotel, airport pickup, and a private day route for customers who want easy arrival.",
     price: 188,
     save: "Save $34",
+    saveAmount: 34,
     highlight: "Most comfortable",
     image: tripBeachImage,
     services: ["hotels", "cars"],
@@ -363,6 +386,7 @@ const dealPackages: DealPackage[] = [
     body: "Reserved bus seat and smart hotel stay for travelers who want the lowest total.",
     price: 116,
     save: "Save $18",
+    saveAmount: 18,
     highlight: "Lowest price",
     image: routeTokyoImage,
     services: ["bus", "hotels"],
@@ -386,6 +410,7 @@ function mergeDealsWithLocalImages(payload: DealsPayload): DealsPayload {
 
     return {
       ...deal,
+      saveAmount: deal.saveAmount ?? localDeal?.saveAmount,
       image: deal.image || localDeal?.image || routePhnomPenhImage,
       reviewUrl: deal.reviewUrl || reviewUrl(deal.reviewKind, deal.resultId, deal.id)
     };
@@ -546,6 +571,37 @@ function engineUrl(path: string) {
 
 function localUrl(path: string) {
   return path;
+}
+
+function readCurrency(): CurrencyCode {
+  if (typeof window === "undefined") {
+    return "USD";
+  }
+
+  const stored = window.localStorage.getItem(currencyKey);
+
+  return stored === "KHR" || stored === "THB" ? stored : "USD";
+}
+
+function formatAmountText(amount: string, currency: CurrencyCode) {
+  const normalized = amount.replace(/,/g, "");
+  const match = normalized.match(/(?:USD|\$)\s*\$?([0-9]+(?:\.[0-9]+)?)/i);
+
+  if (!match) {
+    return amount;
+  }
+
+  return money(currency, Number(match[1]));
+}
+
+function dealSaveLabel(deal: DealPackage, currency: CurrencyCode) {
+  const amount = deal.saveAmount ?? Number(deal.save.replace(/[^0-9.]/g, ""));
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return deal.save;
+  }
+
+  return `Save ${money(currency, amount)}`;
 }
 
 function currentRouteKind(): SearchKind | null {
@@ -1072,7 +1128,18 @@ function formatMode(mode: string) {
 }
 
 function money(currency: string, amount: number) {
-  return `${currency} $${amount.toFixed(2)}`;
+  const option = currencyOptions.find((item) => item.code === currency) || currencyOptions[0];
+  const converted = amount * option.rate;
+  const formatted = converted.toLocaleString("en-US", {
+    minimumFractionDigits: option.decimals,
+    maximumFractionDigits: option.decimals
+  });
+
+  if (option.code === "USD") {
+    return `${option.code} ${option.symbol}${formatted}`;
+  }
+
+  return `${option.code} ${formatted}${option.symbol}`;
 }
 
 function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripType = "Round trip") {
@@ -1159,6 +1226,8 @@ function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
   const [savedTripCount, setSavedTripCount] = useState(() => readSavedTrips().length);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [currency, setCurrency] = useState<CurrencyCode>(() => readCurrency());
+  const [currencyOpen, setCurrencyOpen] = useState(false);
   const routeKind = currentRouteKind();
   const reviewKind = currentReviewKind();
   const tripsRoute = isTripsRoute();
@@ -1235,8 +1304,47 @@ function App() {
     activeUtility?.scrollIntoView({ block: "nearest", inline: "center" });
   }, [path]);
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(currencyKey, currency);
+    }
+  }, [currency]);
+
+  useEffect(() => {
+    if (!currencyOpen && !notificationsOpen) {
+      return undefined;
+    }
+
+    function closeFloatingPanels(event: PointerEvent) {
+      const target = event.target as Element | null;
+
+      if (target?.closest(".currency-menu, .notification-panel, .icon-btn")) {
+        return;
+      }
+
+      setCurrencyOpen(false);
+      setNotificationsOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setCurrencyOpen(false);
+        setNotificationsOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeFloatingPanels);
+    document.addEventListener("keydown", closeOnEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeFloatingPanels);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [currencyOpen, notificationsOpen]);
+
   return (
-    <main className="travel-page">
+    <CurrencyContext.Provider value={{ currency, setCurrency }}>
+      <main className="travel-page">
       <header className="topbar" aria-label="Zivo Travel navigation">
         <a className="brand" href={localUrl("/")} aria-label="Zivo Travel home">
           <span className="brand-mark">Z</span>
@@ -1264,11 +1372,43 @@ function App() {
         </nav>
 
         <div className="utility-nav">
-          <a className="pill" href={engineUrl("/zivo-travel")}>
-            <Globe2 size={16} />
-            USD
-            <ChevronDown size={14} />
-          </a>
+          <div className="currency-menu">
+            <button
+              className={`pill ${currencyOpen ? "active" : ""}`}
+              type="button"
+              aria-label="Choose currency"
+              aria-expanded={currencyOpen}
+              aria-controls="currency-options"
+              onClick={() => {
+                setNotificationsOpen(false);
+                setCurrencyOpen((open) => !open);
+              }}
+            >
+              <Globe2 size={16} />
+              {currency}
+              <ChevronDown size={14} />
+            </button>
+            {currencyOpen ? (
+              <div id="currency-options" className="currency-panel" role="menu">
+                {currencyOptions.map((option) => (
+                  <button
+                    key={option.code}
+                    type="button"
+                    className={option.code === currency ? "active" : ""}
+                    role="menuitemradio"
+                    aria-checked={option.code === currency}
+                    onClick={() => {
+                      setCurrency(option.code);
+                      setCurrencyOpen(false);
+                    }}
+                  >
+                    <span>{option.code}</span>
+                    <small>{option.label}</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <a
             className={`pill ${path === "/trips" || path === "/my-trips" ? "active" : ""}`}
             href={localUrl("/trips")}
@@ -1304,7 +1444,10 @@ function App() {
             aria-label="Notifications"
             aria-expanded={notificationsOpen}
             aria-controls="travel-notifications"
-            onClick={() => setNotificationsOpen((open) => !open)}
+            onClick={() => {
+              setCurrencyOpen(false);
+              setNotificationsOpen((open) => !open);
+            }}
           >
             <Bell size={18} />
             <span className="notification-dot" />
@@ -1393,7 +1536,8 @@ function App() {
           <BookingWorkflow backendStatus={backendStatus} />
         </>
       )}
-    </main>
+      </main>
+    </CurrencyContext.Provider>
   );
 }
 
@@ -1562,6 +1706,8 @@ function FeatureHero() {
 }
 
 function PopularRoutes() {
+  const { currency } = useCurrency();
+
   return (
     <article className="popular-card">
       <SectionHeader title="Popular routes" />
@@ -1580,7 +1726,7 @@ function PopularRoutes() {
               <strong>{route.from}</strong>
               <span>{route.to}</span>
               <small>
-                from <b>{route.price}</b>
+                from <b>{money(currency, route.price)}</b>
               </small>
             </div>
           </a>
@@ -1674,6 +1820,7 @@ function MyTrips() {
 }
 
 function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const { currency } = useCurrency();
   const [payload, setPayload] = useState<DealsPayload>(() => fallbackDeals());
   const activePayload = payload.deals.length ? payload : fallbackDeals();
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
@@ -1740,7 +1887,7 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
             </div>
             <div className="deal-body">
               <div>
-                <span className="provider">{deal.save}</span>
+                <span className="provider">{dealSaveLabel(deal, currency)}</span>
                 <h2>{deal.title}</h2>
                 <p>{deal.body}</p>
               </div>
@@ -1758,7 +1905,7 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
               <div className="deal-action">
                 <div>
                   <small>from</small>
-                  <strong>USD ${deal.price}</strong>
+                  <strong>{money(currency, deal.price)}</strong>
                 </div>
                 <a href={deal.reviewUrl || reviewUrl(deal.reviewKind, deal.resultId, deal.id)}>
                   Select deal
@@ -1789,6 +1936,7 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
 }
 
 function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const { currency } = useCurrency();
   const [trips, setTrips] = useState<SavedTrip[]>(() => readSavedTrips());
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
   const persistenceLabel =
@@ -1860,9 +2008,7 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
                   </div>
                   <div className="trip-row-price">
                     <small>Total</small>
-                    <strong>
-                      {trip.currency} ${trip.total}
-                    </strong>
+                    <strong>{money(currency, trip.total)}</strong>
                     <div>
                       <a href={localUrl(trip.reviewUrl)}>
                         Review
@@ -1937,6 +2083,7 @@ function walletReasonLabel(summary: WalletSummaryPayload) {
 }
 
 function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const { currency } = useCurrency();
   const [summary, setSummary] = useState<WalletSummaryPayload>(() => fallbackWalletSummary());
   const [refreshToken, setRefreshToken] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -2007,7 +2154,7 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
           <article className="wallet-balance-card">
             <div>
               <span>Available for cash out</span>
-              <strong>{money(activeSummary.currency, activeSummary.available)}</strong>
+              <strong>{money(currency, activeSummary.available)}</strong>
               <p>{walletReasonLabel(activeSummary)}</p>
             </div>
             <div className="wallet-card-chip">
@@ -2019,17 +2166,17 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
           <div className="wallet-metrics" aria-label="Wallet metrics">
             <article>
               <span>Total tracked</span>
-              <strong>{money(activeSummary.currency, totalFunds)}</strong>
+              <strong>{money(currency, totalFunds)}</strong>
               <small>Balance + pending + rewards</small>
             </article>
             <article>
               <span>Pending payout</span>
-              <strong>{money(activeSummary.currency, activeSummary.pending)}</strong>
+              <strong>{money(currency, activeSummary.pending)}</strong>
               <small>Releases after checkout</small>
             </article>
             <article>
               <span>Rewards</span>
-              <strong>{money(activeSummary.currency, activeSummary.rewards)}</strong>
+              <strong>{money(currency, activeSummary.rewards)}</strong>
               <small>Ready for next booking</small>
             </article>
           </div>
@@ -2085,7 +2232,7 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
                         {payout.status} • {payout.eta}
                       </small>
                     </div>
-                    <b>{money(activeSummary.currency, payout.amount)}</b>
+                    <b>{money(currency, payout.amount)}</b>
                   </div>
                 ))}
               </div>
@@ -2172,6 +2319,7 @@ function queueReasonLabel(payload: AdminQueuePayload) {
 }
 
 function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const { currency } = useCurrency();
   const [payload, setPayload] = useState<AdminQueuePayload>(() => fallbackAdminQueue());
   const [refreshToken, setRefreshToken] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -2314,7 +2462,7 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
                   <span>{row.product}</span>
                   <span>{row.route}</span>
                   <span>{row.status}</span>
-                  <span>{row.amount}</span>
+                  <span>{formatAmountText(row.amount, currency)}</span>
                   <span>
                     <b className={`risk-pill risk-${riskClass(row.risk)}`}>{row.risk}</b>
                   </span>
@@ -2367,6 +2515,7 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
 }
 
 function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus: BackendStatus | null }) {
+  const { currency } = useCurrency();
   const [payload, setPayload] = useState<ResultsPayload>(() => fallbackResults(kind));
   const activePayload = payload.product === kind ? payload : fallbackResults(kind);
   const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
@@ -2483,9 +2632,7 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
               </div>
               <div className="result-action">
                 <small>from</small>
-                <strong>
-                  {activePayload.currency} ${result.price}
-                </strong>
+                <strong>{money(currency, result.price)}</strong>
                 <a href={result.reviewUrl || result.checkoutUrl}>
                   Select
                   <ArrowRight size={17} />
@@ -2523,6 +2670,7 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
 }
 
 function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatus: BackendStatus | null }) {
+  const { currency } = useCurrency();
   const searchParams = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
   const resultId = searchParams?.get("result") || null;
   const dealId = searchParams?.get("deal") || null;
@@ -2541,6 +2689,17 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       ? "Saved in Supabase"
       : "Preview draft"
     : "Not saved yet";
+  const reviewTags = activeSession.deal
+    ? [
+        dealSaveLabel(activeSession.deal, currency),
+        ...activeSession.result.tags.filter((tag) => tag !== activeSession.deal?.save)
+      ]
+    : activeSession.result.tags;
+  const reviewLedger = activeSession.ledger.map((item) =>
+    item.label === "Package" && activeSession.deal
+      ? { ...item, value: `${dealSaveLabel(activeSession.deal, currency)} bundle` }
+      : item
+  );
 
   function updateTraveler(field: keyof TravelerDetails, value: string) {
     setTraveler((current) => ({ ...current, [field]: value }));
@@ -2732,7 +2891,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
           </div>
 
           <div className="review-tags">
-            {activeSession.result.tags.map((tag) => (
+            {reviewTags.map((tag) => (
               <span key={tag}>{tag}</span>
             ))}
           </div>
@@ -2813,21 +2972,15 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
           <div className="price-breakdown">
             <div>
               <span>Subtotal</span>
-              <strong>
-                {activeSession.currency} ${activeSession.subtotal}
-              </strong>
+              <strong>{money(currency, activeSession.subtotal)}</strong>
             </div>
             <div>
               <span>Service fee</span>
-              <strong>
-                {activeSession.currency} ${activeSession.serviceFee}
-              </strong>
+              <strong>{money(currency, activeSession.serviceFee)}</strong>
             </div>
             <div>
               <span>Total due</span>
-              <strong>
-                {activeSession.currency} ${activeSession.total}
-              </strong>
+              <strong>{money(currency, activeSession.total)}</strong>
             </div>
           </div>
 
@@ -2866,7 +3019,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
           </div>
 
           <div className="ledger-list">
-            {activeSession.ledger.map((item) => (
+            {reviewLedger.map((item) => (
               <div key={item.label}>
                 <span>{item.label}</span>
                 <strong>{item.value}</strong>
@@ -2880,6 +3033,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 }
 
 function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const { currency } = useCurrency();
   const [activeKind, setActiveKind] = useState<SearchKind>("flights");
   const [quote, setQuote] = useState<QuotePayload>(() => fallbackQuote("flights"));
   const activeQuote = quote.product === activeKind ? quote : fallbackQuote(activeKind);
@@ -2951,9 +3105,7 @@ function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | nul
         </div>
         <div className="quote-row">
           <span>Estimate</span>
-          <strong>
-            {activeQuote.currency} ${activeQuote.total}
-          </strong>
+          <strong>{money(currency, activeQuote.total)}</strong>
         </div>
         <a className="checkout-link" href={reviewUrl(activeKind)}>
           Review booking
