@@ -795,6 +795,8 @@ button {
 }
 
 .feature-image {
+  position: relative;
+  z-index: 0;
   width: 100%;
   height: 100%;
   min-height: 418px;
@@ -803,14 +805,27 @@ button {
   object-position: center 58%;
 }
 
+.feature-depth-card {
+  position: absolute;
+  inset: 1px;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 78% 62%, rgba(255, 255, 255, 0.68), transparent 17%),
+    linear-gradient(180deg, transparent 0 60%, rgba(231, 244, 255, 0.58) 83%, rgba(255, 255, 255, 0.78) 100%);
+  box-shadow: inset 0 0 0 2px rgba(7, 90, 242, 0.12);
+}
+
 .feature-card::after {
   position: absolute;
+  z-index: 6;
   inset: 0;
   border-radius: inherit;
   content: "";
   background:
-    radial-gradient(circle at 72% 18%, rgba(255, 255, 255, 0.2), transparent 22%),
-    linear-gradient(110deg, rgba(10, 76, 152, 0.28), transparent 62%);
+    radial-gradient(circle at 72% 18%, rgba(255, 255, 255, 0.18), transparent 22%),
+    linear-gradient(110deg, rgba(10, 76, 152, 0.12), transparent 62%);
   pointer-events: none;
 }
 
@@ -855,20 +870,20 @@ button {
 
 .plane-3d {
   position: absolute;
-  right: -76px;
-  bottom: 54px;
-  z-index: 3;
-  width: 470px;
-  height: 126px;
+  right: -32px;
+  bottom: 46px;
+  z-index: 5;
+  width: 515px;
+  height: 138px;
   border-radius: 80% 45% 45% 80%;
   background:
     radial-gradient(circle at 10% 42%, rgba(13, 40, 68, 0.16) 0 8px, transparent 9px),
     radial-gradient(circle at 18% 48%, #ffffff 0 17px, transparent 18px),
     linear-gradient(180deg, #ffffff 0%, #f6f9fd 42%, #e1ebf5 100%);
   box-shadow:
-    0 28px 54px rgba(18, 54, 99, 0.24),
+    0 32px 62px rgba(18, 54, 99, 0.3),
     inset 0 -16px 24px rgba(80, 101, 126, 0.08);
-  transform: rotate(-8deg) translateZ(36px);
+  transform: rotate(-7deg) translateZ(36px);
 }
 
 .plane-3d::before {
@@ -936,7 +951,7 @@ button {
 
 .cloud {
   position: absolute;
-  z-index: 2;
+  z-index: 4;
   width: 176px;
   height: 58px;
   border-radius: 999px;
@@ -945,19 +960,19 @@ button {
 }
 
 .cloud.one {
-  left: 8px;
-  bottom: 88px;
+  left: -12px;
+  bottom: 78px;
 }
 
 .cloud.two {
-  right: 40px;
-  bottom: 148px;
-  width: 120px;
+  right: 110px;
+  bottom: 130px;
+  width: 138px;
 }
 
 .balloon {
   position: absolute;
-  z-index: 2;
+  z-index: 4;
   border-radius: 50% 50% 48% 48%;
   background:
     linear-gradient(90deg, transparent 22%, rgba(255, 255, 255, 0.48) 23% 29%, transparent 30% 48%, rgba(255, 255, 255, 0.3) 49% 54%, transparent 55%),
@@ -989,26 +1004,26 @@ button {
 }
 
 .balloon-one {
-  top: 62px;
-  right: 228px;
-  width: 44px;
-  height: 58px;
+  top: 52px;
+  right: 226px;
+  width: 50px;
+  height: 66px;
 }
 
 .balloon-two {
-  top: 112px;
-  right: 132px;
-  width: 28px;
-  height: 37px;
+  top: 96px;
+  right: 128px;
+  width: 32px;
+  height: 43px;
   opacity: 0.82;
   transform: rotate(8deg);
 }
 
 .balloon-three {
-  top: 88px;
-  right: 72px;
-  width: 24px;
-  height: 31px;
+  top: 78px;
+  right: 60px;
+  width: 28px;
+  height: 37px;
   opacity: 0.72;
   transform: rotate(-7deg);
 }
@@ -2319,6 +2334,54 @@ button {
 .trips-list {
   display: grid;
   gap: 16px;
+}
+
+.trip-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(35, 88, 145, 0.12);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 16px 38px rgba(44, 102, 160, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.trip-filter-bar button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid rgba(33, 86, 139, 0.1);
+  border-radius: 999px;
+  padding: 0 14px;
+  color: #415b77;
+  background: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.trip-filter-bar button.active {
+  border-color: rgba(7, 90, 242, 0.26);
+  color: #075af2;
+  background: #eef7ff;
+  box-shadow: inset 0 -2px 0 rgba(7, 90, 242, 0.2);
+}
+
+.trip-filter-bar span {
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #075af2;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .trip-row,
@@ -4496,6 +4559,16 @@ button {
 
   .trip-row {
     grid-template-columns: 1fr;
+  }
+
+  .trip-filter-bar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trip-filter-bar button {
+    width: 100%;
+    padding: 0 10px;
   }
 
   .trip-row-icon {

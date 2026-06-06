@@ -115,6 +115,7 @@ type SearchContext = {
   tripType: string;
   chips: string[];
 };
+type TripFilter = "all" | "checkout" | "preview" | "synced";
 type ReviewSession = {
   product: SearchKind;
   label: string;
@@ -388,6 +389,13 @@ const trustItems = [
   { title: "Secure payments", body: "Your data is protected", icon: ShieldCheck },
   { title: "Best price guarantee", body: "We promise the best", icon: WalletCards },
   { title: "Flexible options", body: "Change with ease", icon: Repeat2 }
+];
+
+const tripFilters: Array<{ id: TripFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "checkout", label: "Checkout ready" },
+  { id: "preview", label: "Preview" },
+  { id: "synced", label: "Synced" }
 ];
 
 const supportTopics: Array<{
@@ -2510,6 +2518,15 @@ function FeatureHero() {
         src={heroCardImage}
         alt="Zivo Travel booking hero with temple, airplane, and balloons"
       />
+      <span className="feature-depth-card" aria-hidden="true" />
+      <span className="cloud one" aria-hidden="true" />
+      <span className="cloud two" aria-hidden="true" />
+      <span className="balloon balloon-one" aria-hidden="true" />
+      <span className="balloon balloon-two" aria-hidden="true" />
+      <span className="balloon balloon-three" aria-hidden="true" />
+      <span className="plane-3d" aria-hidden="true">
+        <span />
+      </span>
     </a>
   );
 }
@@ -2747,13 +2764,44 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
 function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
   const { currency } = useCurrency();
   const [trips, setTrips] = useState<SavedTrip[]>(() => readSavedTrips());
+  const [activeFilter, setActiveFilter] = useState<TripFilter>("all");
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
   const persistenceLabel =
-    backendStatus?.bookingPersistence === "supabase" ? "Supabase sync ready" : "Browser drafts";
+    backendStatus?.bookingPersistence === "supabase"
+      ? "Supabase sync ready"
+      : backendStatus?.bookingPersistence === "supabase_insert"
+        ? "Supabase draft capture"
+        : "Browser drafts";
+  const tripCounts = useMemo(
+    () => ({
+      all: trips.length,
+      checkout: trips.filter((trip) => Boolean(trip.checkoutUrl)).length,
+      preview: trips.filter((trip) => !trip.persisted).length,
+      synced: trips.filter((trip) => trip.persisted).length
+    }),
+    [trips]
+  );
+  const filteredTrips = useMemo(() => {
+    if (activeFilter === "checkout") {
+      return trips.filter((trip) => Boolean(trip.checkoutUrl));
+    }
+
+    if (activeFilter === "preview") {
+      return trips.filter((trip) => !trip.persisted);
+    }
+
+    if (activeFilter === "synced") {
+      return trips.filter((trip) => trip.persisted);
+    }
+
+    return trips;
+  }, [activeFilter, trips]);
+  const activeFilterLabel = tripFilters.find((filter) => filter.id === activeFilter)?.label || "All";
 
   function clearTrips() {
     writeSavedTrips([]);
     setTrips([]);
+    setActiveFilter("all");
   }
 
   useEffect(() => {
@@ -2794,7 +2842,25 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
       <div className="trips-layout">
         <div className="trips-list">
           {trips.length ? (
-            trips.map((trip) => {
+            <div className="trip-filter-bar" role="tablist" aria-label="Trip filters">
+              {tripFilters.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  className={filter.id === activeFilter ? "active" : ""}
+                  role="tab"
+                  aria-selected={filter.id === activeFilter}
+                  onClick={() => setActiveFilter(filter.id)}
+                >
+                  {filter.label}
+                  <span>{tripCounts[filter.id]}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {filteredTrips.length ? (
+            filteredTrips.map((trip) => {
               const Icon = serviceIcon(trip.serviceType);
 
               return (
@@ -2824,7 +2890,7 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
                         <ArrowRight size={16} />
                       </a>
                       <a href={trip.checkoutUrl}>
-                        Checkout
+                        Resume
                         <ArrowRight size={16} />
                       </a>
                     </div>
@@ -2832,6 +2898,18 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
                 </article>
               );
             })
+          ) : trips.length ? (
+            <article className="empty-trips">
+              <span>
+                <Search size={28} />
+              </span>
+              <h2>No {activeFilterLabel.toLowerCase()} trips</h2>
+              <p>Try another filter or create a new booking draft from any travel result.</p>
+              <a href={localUrl("/")}>
+                New search
+                <ArrowRight size={18} />
+              </a>
+            </article>
           ) : (
             <article className="empty-trips">
               <span>
@@ -2853,15 +2931,15 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
           <div>
             <span>
               <ReceiptText size={16} />
-              Booking draft
+              {tripCounts.all} saved drafts
             </span>
             <span>
               <CreditCard size={16} />
-              Checkout handoff
+              {tripCounts.checkout} checkout ready
             </span>
             <span>
               <WalletCards size={16} />
-              Wallet record
+              {tripCounts.synced} synced records
             </span>
           </div>
           <a href={localUrl("/")}>

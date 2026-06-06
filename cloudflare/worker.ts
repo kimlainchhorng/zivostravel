@@ -3,6 +3,7 @@ export interface Env {
   ZIVO_PLATFORM_ORIGIN: string;
   ZIVO_TRAVEL_SUPABASE_URL?: string;
   ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY?: string;
+  ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY?: string;
   ZIVO_AUTHORITY_SUPABASE_URL?: string;
 }
 
@@ -163,6 +164,39 @@ const allowedApiOrigins = new Set([
 
 function platformOrigin(env: Env) {
   return (env.ZIVO_PLATFORM_ORIGIN || "https://zivosmedia.com").replace(/\/$/, "");
+}
+
+function readEnvSecret(value?: string) {
+  return value?.trim() || "";
+}
+
+function travelSupabaseUrl(env: Env) {
+  return readEnvSecret(env.ZIVO_TRAVEL_SUPABASE_URL).replace(/\/$/, "");
+}
+
+function privilegedSupabaseKey(env: Env) {
+  return readEnvSecret(env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function writeSupabaseKey(env: Env) {
+  return privilegedSupabaseKey(env) || readEnvSecret(env.ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY);
+}
+
+function usesModernSupabaseKey(key: string) {
+  return key.startsWith("sb_publishable_") || key.startsWith("sb_secret_");
+}
+
+function supabaseApiHeaders(key: string, headers: Record<string, string> = {}) {
+  const nextHeaders: Record<string, string> = {
+    apikey: key,
+    ...headers,
+  };
+
+  if (!usesModernSupabaseKey(key)) {
+    nextHeaders.authorization = `Bearer ${key}`;
+  }
+
+  return nextHeaders;
 }
 
 function normalizeSearchKind(value: string | null): SearchKind {
@@ -461,12 +495,13 @@ function buildDeals(requestUrl: URL) {
 
 function buildWalletSummary(env: Env): WalletSummary {
   const origin = platformOrigin(env);
+  const hasPrivateKey = Boolean(privilegedSupabaseKey(env));
 
   return {
     app: "zivo-travel",
-    mode: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "wallet_bridge_ready" : "wallet_preview",
-    persisted: Boolean(env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY),
-    reason: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? undefined : "missing_supabase_service_role_secret",
+    mode: hasPrivateKey ? "wallet_bridge_ready" : "wallet_preview",
+    persisted: hasPrivateKey,
+    reason: hasPrivateKey ? undefined : "missing_supabase_private_key",
     currency: "USD",
     available: 356.35,
     pending: 116,
@@ -508,8 +543,10 @@ function buildPreviewAdminQueue(): AdminQueueRow[] {
 
 async function fetchAdminQueue(requestUrl: URL, env: Env) {
   const limit = Math.min(Math.max(Number.parseInt(requestUrl.searchParams.get("limit") || "50", 10) || 50, 1), 100);
+  const supabaseUrl = travelSupabaseUrl(env);
+  const privateKey = privilegedSupabaseKey(env);
 
-  if (!env.ZIVO_TRAVEL_SUPABASE_URL || !env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY) {
+  if (!supabaseUrl || !privateKey) {
     return {
       app: "zivo-travel",
       mode: "admin_queue_preview",
@@ -520,15 +557,13 @@ async function fetchAdminQueue(requestUrl: URL, env: Env) {
     };
   }
 
-  const endpoint = `${env.ZIVO_TRAVEL_SUPABASE_URL.replace(/\/$/, "")}/rest/v1/rpc/zivo_travel_admin_queue`;
+  const endpoint = `${supabaseUrl}/rest/v1/rpc/zivo_travel_admin_queue`;
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      apikey: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY,
-      authorization: `Bearer ${env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY}`,
+    headers: supabaseApiHeaders(privateKey, {
       "content-type": "application/json",
       accept: "application/json",
-    },
+    }),
     body: JSON.stringify({ p_limit: limit }),
   });
 
@@ -739,24 +774,29 @@ async function createBookingIntent(request: Request, requestUrl: URL, env: Env) 
   const kind = normalizeSearchKind(requestUrl.searchParams.get("type") || bodyType);
   const resultId = requestUrl.searchParams.get("result") || bodyResult || undefined;
   const row = buildBookingRow(requestUrl, env, kind, resultId, body);
+  const supabaseUrl = travelSupabaseUrl(env);
+  const privateKey = privilegedSupabaseKey(env);
+  const writeKey = writeSupabaseKey(env);
 
-  if (!env.ZIVO_TRAVEL_SUPABASE_URL || !env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY) {
+  if (!supabaseUrl || !writeKey) {
     return {
       ...bookingResponseFromRow(row, "booking_bridge_preview", false),
-      reason: "missing_supabase_service_role_secret",
+      reason: "missing_supabase_write_key",
     };
   }
 
+  const canReadInsertedRow = Boolean(privateKey);
+  const endpoint = canReadInsertedRow
+    ? `${supabaseUrl}/rest/v1/zivo_travel_booking_intents?select=id,booking_reference,status,service_type,result_id,result_title,provider,currency,subtotal,service_fee,total,review_url,checkout_url,sso_url,created_at`
+    : `${supabaseUrl}/rest/v1/zivo_travel_booking_intents`;
   const response = await fetch(
-    `${env.ZIVO_TRAVEL_SUPABASE_URL.replace(/\/$/, "")}/rest/v1/zivo_travel_booking_intents?select=id,booking_reference,status,service_type,result_id,result_title,provider,currency,subtotal,service_fee,total,review_url,checkout_url,sso_url,created_at`,
+    endpoint,
     {
       method: "POST",
-      headers: {
-        apikey: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY,
-        authorization: `Bearer ${env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY}`,
+      headers: supabaseApiHeaders(writeKey, {
         "content-type": "application/json",
-        prefer: "return=representation",
-      },
+        prefer: canReadInsertedRow ? "return=representation" : "return=minimal",
+      }),
       body: JSON.stringify(row),
     },
   );
@@ -769,12 +809,18 @@ async function createBookingIntent(request: Request, requestUrl: URL, env: Env) 
     };
   }
 
+  if (!canReadInsertedRow) {
+    return bookingResponseFromRow(row, "supabase_public_booking_intent", true);
+  }
+
   const records = await response.json() as Array<Record<string, unknown>>;
   return bookingResponseFromRow(records[0] || row, "supabase_booking_intent", true);
 }
 
 async function findBookingIntent(requestUrl: URL, env: Env) {
   const reference = requestUrl.searchParams.get("reference") || requestUrl.searchParams.get("booking_reference");
+  const supabaseUrl = travelSupabaseUrl(env);
+  const privateKey = privilegedSupabaseKey(env);
 
   if (!reference) {
     return {
@@ -786,29 +832,27 @@ async function findBookingIntent(requestUrl: URL, env: Env) {
     };
   }
 
-  if (!env.ZIVO_TRAVEL_SUPABASE_URL || !env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY) {
+  if (!supabaseUrl || !privateKey) {
     return {
       app: "zivo-travel",
       mode: "booking_lookup_preview",
       persisted: false,
-      reason: "missing_supabase_service_role_secret",
+      reason: "missing_supabase_private_key",
       reference,
       bookings: [],
       checkedAt: new Date().toISOString(),
     };
   }
 
-  const endpoint = new URL(`${env.ZIVO_TRAVEL_SUPABASE_URL.replace(/\/$/, "")}/rest/v1/zivo_travel_booking_intents`);
+  const endpoint = new URL(`${supabaseUrl}/rest/v1/zivo_travel_booking_intents`);
   endpoint.searchParams.set("select", "id,booking_reference,status,service_type,result_id,result_title,provider,currency,subtotal,service_fee,total,review_url,checkout_url,sso_url,created_at");
   endpoint.searchParams.set("booking_reference", `eq.${reference}`);
   endpoint.searchParams.set("limit", "1");
 
   const response = await fetch(endpoint.toString(), {
-    headers: {
-      apikey: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY,
-      authorization: `Bearer ${env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY}`,
+    headers: supabaseApiHeaders(privateKey, {
       accept: "application/json",
-    },
+    }),
   });
 
   if (!response.ok) {
@@ -900,16 +944,19 @@ export default {
     }
 
     if (url.pathname === "/api/health" || url.pathname === "/api/travel/status") {
+      const hasPrivateSupabaseKey = Boolean(privilegedSupabaseKey(env));
+      const hasWriteSupabaseKey = Boolean(writeSupabaseKey(env));
+
       return json(request, {
         app: "zivo-travel",
         mode: "cloudflare_bridge",
         platformOrigin: platformOrigin(env),
         travelSupabaseUrl: env.ZIVO_TRAVEL_SUPABASE_URL || null,
         authoritySupabaseUrl: env.ZIVO_AUTHORITY_SUPABASE_URL || null,
-        dedicatedBackendEnabled: Boolean(env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY),
-        bookingPersistence: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "supabase" : "preview",
-        adminQueue: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "supabase_rpc" : "preview",
-        walletSummary: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "bridge_ready" : "preview",
+        dedicatedBackendEnabled: hasWriteSupabaseKey,
+        bookingPersistence: hasPrivateSupabaseKey ? "supabase" : hasWriteSupabaseKey ? "supabase_insert" : "preview",
+        adminQueue: hasPrivateSupabaseKey ? "supabase_rpc" : "preview",
+        walletSummary: hasPrivateSupabaseKey ? "bridge_ready" : "preview",
         services: travelServices,
         routes: routePaths,
         checkedAt: new Date().toISOString(),

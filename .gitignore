@@ -5,4 +5,5 @@ tmp
 .env
 .env.local
 .env.*.local
+supabase/.temp
 public/assets/zivo-travel-reference-source.png
