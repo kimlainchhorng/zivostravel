@@ -25,11 +25,12 @@ type ResultTemplate = {
 };
 
 const travelServices: SearchKind[] = ["flights", "hotels", "cars", "bus"];
-const routePaths: Record<SearchKind | "checkout" | "wallet" | "paymentMethods" | "payout" | "support" | "authHandoff", string> = {
+const routePaths: Record<SearchKind | "review" | "checkout" | "wallet" | "paymentMethods" | "payout" | "support" | "authHandoff", string> = {
   flights: "/flights",
   hotels: "/hotels",
   cars: "/cars",
   bus: "/bus",
+  review: "/booking/review",
   checkout: "/travel/checkout",
   wallet: "/wallet",
   paymentMethods: "/payment-methods",
@@ -197,6 +198,23 @@ function buildCheckoutUrl(requestUrl: URL, env: Env, kind: SearchKind, resultId?
   return checkout.toString();
 }
 
+function buildReviewUrl(requestUrl: URL, kind: SearchKind, resultId?: string) {
+  const review = new URL(routePaths.review, requestUrl.origin);
+
+  review.searchParams.set("type", kind);
+  review.searchParams.set("from", requestUrl.searchParams.get("from") || "Phnom Penh");
+  review.searchParams.set("to", requestUrl.searchParams.get("to") || "Siem Reap");
+  review.searchParams.set("start", requestUrl.searchParams.get("start") || "2026-06-15");
+  review.searchParams.set("end", requestUrl.searchParams.get("end") || "2026-06-18");
+  review.searchParams.set("travelers", requestUrl.searchParams.get("travelers") || "1");
+
+  if (resultId) {
+    review.searchParams.set("result", resultId);
+  }
+
+  return review.toString();
+}
+
 function buildQuote(requestUrl: URL, env: Env, kind: SearchKind) {
   const defaults = quoteDefaults[kind];
   const checkoutUrl = buildCheckoutUrl(requestUrl, env, kind);
@@ -213,6 +231,7 @@ function buildQuote(requestUrl: URL, env: Env, kind: SearchKind) {
     currency: "USD",
     total: defaults.total,
     provider: "zivosmedia",
+    reviewUrl: buildReviewUrl(requestUrl, kind),
     checkoutUrl,
     paymentUrl: new URL(routePaths.paymentMethods, platformOrigin(env)).toString(),
     walletUrl: new URL(routePaths.wallet, platformOrigin(env)).toString(),
@@ -240,8 +259,58 @@ function buildResults(requestUrl: URL, env: Env, kind: SearchKind) {
     provider: "zivosmedia",
     results: resultCatalog[kind].map((result) => ({
       ...result,
+      reviewUrl: buildReviewUrl(requestUrl, kind, result.id),
       checkoutUrl: buildCheckoutUrl(requestUrl, env, kind, result.id),
     })),
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function buildReviewSession(requestUrl: URL, env: Env, kind: SearchKind) {
+  const resultId = requestUrl.searchParams.get("result");
+  const result = resultCatalog[kind].find((item) => item.id === resultId) || resultCatalog[kind][0];
+  const checkoutUrl = buildCheckoutUrl(requestUrl, env, kind, result.id);
+  const auth = new URL(routePaths.authHandoff, platformOrigin(env));
+  const serviceFee = Math.max(3, Math.round(result.price * 0.08));
+
+  auth.searchParams.set("app", "zivo-travel");
+  auth.searchParams.set("redirect", new URL(checkoutUrl).pathname + new URL(checkoutUrl).search);
+
+  return {
+    app: "zivo-travel",
+    mode: "cloudflare_review",
+    product: kind,
+    label: `Review ${result.title}`,
+    summary: result.detail,
+    currency: "USD",
+    provider: "zivosmedia",
+    result: {
+      ...result,
+      reviewUrl: buildReviewUrl(requestUrl, kind, result.id),
+      checkoutUrl,
+    },
+    subtotal: result.price,
+    serviceFee,
+    total: result.price + serviceFee,
+    reviewUrl: buildReviewUrl(requestUrl, kind, result.id),
+    checkoutUrl,
+    paymentUrl: new URL(routePaths.paymentMethods, platformOrigin(env)).toString(),
+    walletUrl: new URL(routePaths.wallet, platformOrigin(env)).toString(),
+    payoutUrl: new URL(routePaths.payout, platformOrigin(env)).toString(),
+    ssoUrl: auth.toString(),
+    steps: [
+      { label: "Result selected", status: "ready" },
+      { label: "Review trip", status: "ready" },
+      { label: "Sign in", status: "handoff" },
+      { label: "Pay", status: "handoff" },
+      { label: "Wallet record", status: "handoff" },
+    ],
+    ledger: [
+      { label: "Booking source", value: "Zivo Travel" },
+      { label: "Checkout authority", value: "Zivos Media" },
+      { label: "Payment rail", value: "Saved methods" },
+      { label: "Payout record", value: "Wallet ledger" },
+    ],
     checkedAt: new Date().toISOString(),
   };
 }
@@ -266,7 +335,7 @@ export default {
     }
 
     if (url.pathname === "/sitemap.xml") {
-      const pages = ["", "flights", "hotels", "cars", "bus", "deals"].map(
+      const pages = ["", "flights", "hotels", "cars", "bus", "deals", "booking/review"].map(
         (path) => `  <url><loc>https://zivostravel.com/${path}</loc></url>`,
       );
 
@@ -316,6 +385,12 @@ export default {
       const kind = normalizeSearchKind(url.searchParams.get("type"));
 
       return json(request, buildResults(url, env, kind));
+    }
+
+    if (url.pathname === "/api/travel/session") {
+      const kind = normalizeSearchKind(url.searchParams.get("type"));
+
+      return json(request, buildReviewSession(url, env, kind));
     }
 
     if (url.pathname === "/api/travel/search") {

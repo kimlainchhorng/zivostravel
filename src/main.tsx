@@ -79,6 +79,7 @@ type ResultItem = {
   tags: string[];
   image?: string;
   checkoutUrl: string;
+  reviewUrl?: string;
 };
 type ResultsPayload = {
   product: SearchKind;
@@ -88,6 +89,26 @@ type ResultsPayload = {
   provider: string;
   mode: string;
   results: ResultItem[];
+};
+type ReviewSession = {
+  product: SearchKind;
+  label: string;
+  summary: string;
+  currency: string;
+  provider: string;
+  mode: string;
+  result: ResultItem;
+  subtotal: number;
+  serviceFee: number;
+  total: number;
+  reviewUrl: string;
+  checkoutUrl: string;
+  paymentUrl: string;
+  walletUrl: string;
+  payoutUrl: string;
+  ssoUrl: string;
+  steps: Array<{ label: string; status: string }>;
+  ledger: Array<{ label: string; value: string }>;
 };
 
 const searchTabs = [
@@ -371,6 +392,20 @@ function currentRouteKind(): SearchKind | null {
   return null;
 }
 
+function currentReviewKind(): SearchKind | null {
+  if (typeof window === "undefined" || window.location.pathname !== "/booking/review") {
+    return null;
+  }
+
+  const type = window.location.search ? new URLSearchParams(window.location.search).get("type") : null;
+
+  if (type === "hotels" || type === "cars" || type === "bus") {
+    return type;
+  }
+
+  return "flights";
+}
+
 function canUseTravelApi() {
   if (typeof window === "undefined") {
     return false;
@@ -394,6 +429,23 @@ function checkoutUrl(kind: SearchKind, resultId?: string) {
   }
 
   return engineUrl(`/travel/checkout?${params.toString()}`);
+}
+
+function reviewUrl(kind: SearchKind, resultId?: string) {
+  const params = new URLSearchParams({
+    type: kind,
+    from: defaultRoute.from,
+    to: defaultRoute.to,
+    start: defaultDates.depart,
+    end: defaultDates.return,
+    travelers: "1"
+  });
+
+  if (resultId) {
+    params.set("result", resultId);
+  }
+
+  return localUrl(`/booking/review?${params.toString()}`);
 }
 
 function resultLabel(kind: SearchKind) {
@@ -438,8 +490,61 @@ function fallbackResults(kind: SearchKind): ResultsPayload {
     mode: "local_results",
     results: resultCatalog[kind].map((result) => ({
       ...result,
-      checkoutUrl: checkoutUrl(kind, result.id)
+      checkoutUrl: checkoutUrl(kind, result.id),
+      reviewUrl: reviewUrl(kind, result.id)
     }))
+  };
+}
+
+function selectedResult(kind: SearchKind, resultId?: string | null): ResultItem {
+  const result = resultCatalog[kind].find((item) => item.id === resultId) || resultCatalog[kind][0];
+
+  return {
+    ...result,
+    checkoutUrl: checkoutUrl(kind, result.id),
+    reviewUrl: reviewUrl(kind, result.id)
+  };
+}
+
+function fallbackReviewSession(kind: SearchKind, resultId?: string | null): ReviewSession {
+  const result = selectedResult(kind, resultId);
+  const serviceFee = Math.max(3, Math.round(result.price * 0.08));
+  const total = result.price + serviceFee;
+
+  return {
+    product: kind,
+    label: `Review ${result.title}`,
+    summary: result.detail,
+    currency: "USD",
+    provider: "zivosmedia",
+    mode: "local_review",
+    result,
+    subtotal: result.price,
+    serviceFee,
+    total,
+    reviewUrl: result.reviewUrl || reviewUrl(kind, result.id),
+    checkoutUrl: result.checkoutUrl,
+    paymentUrl: engineUrl(bridge.routing.paymentMethods),
+    walletUrl: engineUrl(bridge.routing.wallet),
+    payoutUrl: engineUrl(`${bridge.routing.wallet}?tab=payouts`),
+    ssoUrl: engineUrl(
+      `${bridge.routing.authHandoff}?app=zivo-travel&redirect=${encodeURIComponent(
+        new URL(result.checkoutUrl).pathname + new URL(result.checkoutUrl).search
+      )}`
+    ),
+    steps: [
+      { label: "Result selected", status: "ready" },
+      { label: "Review trip", status: "ready" },
+      { label: "Sign in", status: "handoff" },
+      { label: "Pay", status: "handoff" },
+      { label: "Wallet record", status: "handoff" }
+    ],
+    ledger: [
+      { label: "Booking source", value: "Zivo Travel" },
+      { label: "Checkout authority", value: "Zivos Media" },
+      { label: "Payment rail", value: "Saved methods" },
+      { label: "Payout record", value: "Wallet ledger" }
+    ]
   };
 }
 
@@ -533,6 +638,7 @@ function fallbackQuote(kind: SearchKind): QuotePayload {
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
   const routeKind = currentRouteKind();
+  const reviewKind = currentReviewKind();
 
   useEffect(() => {
     let cancelled = false;
@@ -631,7 +737,9 @@ function App() {
         </div>
       </header>
 
-      {routeKind ? (
+      {reviewKind ? (
+        <BookingReview kind={reviewKind} backendStatus={backendStatus} />
+      ) : routeKind ? (
         <ResultsPage kind={routeKind} backendStatus={backendStatus} />
       ) : (
         <>
@@ -987,7 +1095,7 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
                 <strong>
                   {activePayload.currency} ${result.price}
                 </strong>
-                <a href={result.checkoutUrl}>
+                <a href={result.reviewUrl || result.checkoutUrl}>
                   Select
                   <ArrowRight size={17} />
                 </a>
@@ -1013,10 +1121,215 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
               Wallet ledger
             </span>
           </div>
-          <a href={activePayload.results[0]?.checkoutUrl || checkoutUrl(kind)}>
+          <a href={activePayload.results[0]?.reviewUrl || reviewUrl(kind, activePayload.results[0]?.id)}>
             Continue with best option
             <ArrowRight size={18} />
           </a>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatus: BackendStatus | null }) {
+  const resultId =
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("result");
+  const [session, setSession] = useState<ReviewSession>(() => fallbackReviewSession(kind, resultId));
+  const activeSession = session.product === kind ? session : fallbackReviewSession(kind, resultId);
+  const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
+  const Icon = activeTab.icon;
+  const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live handoff" : "Local preview";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fallback = fallbackReviewSession(kind, resultId);
+    setSession(fallback);
+
+    if (!canUseTravelApi()) {
+      return () => controller.abort();
+    }
+
+    const params = new URLSearchParams({
+      type: kind,
+      from: defaultRoute.from,
+      to: defaultRoute.to,
+      start: defaultDates.depart,
+      end: defaultDates.return,
+      travelers: "1"
+    });
+
+    if (resultId) {
+      params.set("result", resultId);
+    }
+
+    fetch(`/api/travel/session?${params.toString()}`, {
+      headers: { accept: "application/json" },
+      signal: controller.signal
+    })
+      .then((response) => {
+        if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+          throw new Error("Travel review session unavailable");
+        }
+
+        return response.json() as Promise<ReviewSession>;
+      })
+      .then((payload) => setSession(payload))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setSession(fallback);
+        }
+      });
+
+    return () => controller.abort();
+  }, [kind, resultId]);
+
+  return (
+    <section className="review-page" aria-label="Booking review">
+      <div className="review-hero">
+        <div>
+          <a className="back-link" href={localUrl(buildSearchPath(kind))}>
+            <ChevronLeft size={17} />
+            Results
+          </a>
+          <span className="results-icon">
+            <Icon size={25} />
+          </span>
+          <h1>{activeSession.label}</h1>
+          <p>{activeSession.summary}</p>
+        </div>
+        <div className="review-status">
+          <span>{bridgeLabel}</span>
+          <strong>{formatMode(activeSession.mode)}</strong>
+          <small>{activeSession.provider}</small>
+        </div>
+      </div>
+
+      <div className="review-layout">
+        <article className="review-card review-option">
+          <div className="review-section-head">
+            <span>
+              <ReceiptText size={21} />
+            </span>
+            <div>
+              <h2>Trip option</h2>
+              <p>Selected on Zivo Travel, completed securely on Zivos Media.</p>
+            </div>
+          </div>
+
+          <div className="review-result-row">
+            <div className="result-media">
+              {activeSession.result.image ? (
+                <img src={activeSession.result.image} alt={activeSession.result.title} />
+              ) : (
+                <span>
+                  <Icon size={32} />
+                </span>
+              )}
+            </div>
+            <div>
+              <span className="provider">{activeSession.result.provider}</span>
+              <h2>{activeSession.result.title}</h2>
+              <p>{activeSession.result.detail}</p>
+              <div className="result-facts">
+                <span>
+                  <Clock3 size={15} />
+                  {activeSession.result.time}
+                </span>
+                <span>
+                  <MapPinned size={15} />
+                  {activeSession.result.duration}
+                </span>
+                <span>
+                  <BadgeCheck size={15} />
+                  {activeSession.result.rating}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="review-tags">
+            {activeSession.result.tags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+
+          <div className="review-steps">
+            {activeSession.steps.map((step, index) => (
+              <div key={step.label} className={index < 2 ? "complete" : ""}>
+                <span>
+                  <CheckCircle2 size={16} />
+                </span>
+                <strong>{step.label}</strong>
+                <small>{step.status}</small>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <aside className="review-card review-checkout" aria-label="Checkout summary">
+          <div className="review-section-head">
+            <span>
+              <ShieldCheck size={21} />
+            </span>
+            <div>
+              <h2>Checkout summary</h2>
+              <p>Account, payment, wallet, and payout records stay connected.</p>
+            </div>
+          </div>
+
+          <div className="price-breakdown">
+            <div>
+              <span>Subtotal</span>
+              <strong>
+                {activeSession.currency} ${activeSession.subtotal}
+              </strong>
+            </div>
+            <div>
+              <span>Service fee</span>
+              <strong>
+                {activeSession.currency} ${activeSession.serviceFee}
+              </strong>
+            </div>
+            <div>
+              <span>Total due</span>
+              <strong>
+                {activeSession.currency} ${activeSession.total}
+              </strong>
+            </div>
+          </div>
+
+          <a className="checkout-link" href={activeSession.checkoutUrl}>
+            Continue secure checkout
+            <ArrowRight size={18} />
+          </a>
+
+          <div className="review-actions">
+            <a href={activeSession.ssoUrl}>
+              <LockKeyhole size={16} />
+              SSO handoff
+            </a>
+            <a href={activeSession.paymentUrl}>
+              <CreditCard size={16} />
+              Payment methods
+            </a>
+            <a href={activeSession.walletUrl}>
+              <WalletCards size={16} />
+              Wallet
+            </a>
+            <a href={activeSession.payoutUrl}>
+              <Landmark size={16} />
+              Payout ledger
+            </a>
+          </div>
+
+          <div className="ledger-list">
+            {activeSession.ledger.map((item) => (
+              <div key={item.label}>
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+              </div>
+            ))}
+          </div>
         </aside>
       </div>
     </section>
@@ -1099,8 +1412,8 @@ function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | nul
             {activeQuote.currency} ${activeQuote.total}
           </strong>
         </div>
-        <a className="checkout-link" href={activeQuote.checkoutUrl}>
-          Continue checkout
+        <a className="checkout-link" href={reviewUrl(activeKind)}>
+          Review booking
           <ArrowRight size={18} />
         </a>
       </article>
