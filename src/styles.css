@@ -4455,6 +4455,15 @@ button {
     padding: 18px;
   }
 
+  .support-card-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .support-clear {
+    width: 100%;
+  }
+
   .support-confirmation {
     align-items: stretch;
     flex-direction: column;
