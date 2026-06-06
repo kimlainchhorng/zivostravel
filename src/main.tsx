@@ -23,7 +23,9 @@ import {
   Link2,
   LockKeyhole,
   MapPinned,
+  Minus,
   Plane,
+  Plus,
   ReceiptText,
   Repeat2,
   Search,
@@ -235,6 +237,33 @@ type WalletSummaryPayload = {
   };
   checkedAt: string;
 };
+type SupportTopicId = "booking" | "payment" | "wallet" | "change";
+type SupportForm = {
+  name: string;
+  email: string;
+  bookingReference: string;
+  topic: SupportTopicId;
+  message: string;
+};
+type SupportTicket = {
+  reference: string;
+  status: string;
+  topic: SupportTopicId;
+  priority: string;
+  summary: string;
+  customer: string;
+  bookingReference?: string;
+  chatUrl: string;
+  createdAt: string;
+};
+type SupportTicketResponse = {
+  app?: string;
+  mode: string;
+  persisted: boolean;
+  reason?: string;
+  ticket: SupportTicket;
+  checkedAt?: string;
+};
 
 const searchTabs = [
   {
@@ -300,6 +329,8 @@ const defaultDates = {
 const savedTripsKey = "zivo-travel-booking-drafts";
 const savedTripsEvent = "zivo-travel-bookings-updated";
 const currencyKey = "zivo-travel-currency";
+const supportTicketsKey = "zivo-travel-support-tickets";
+const supportTicketsEvent = "zivo-travel-support-updated";
 
 const routes = [
   {
@@ -335,6 +366,43 @@ const trustItems = [
   { title: "Secure payments", body: "Your data is protected", icon: ShieldCheck },
   { title: "Best price guarantee", body: "We promise the best", icon: WalletCards },
   { title: "Flexible options", body: "Change with ease", icon: Repeat2 }
+];
+
+const supportTopics: Array<{
+  id: SupportTopicId;
+  label: string;
+  body: string;
+  priority: string;
+  icon: typeof Headphones;
+}> = [
+  {
+    id: "booking",
+    label: "Booking help",
+    body: "Trip drafts, checkout status, confirmation, or itinerary questions.",
+    priority: "Fast",
+    icon: ReceiptText
+  },
+  {
+    id: "payment",
+    label: "Payment issue",
+    body: "Card, cash office, refund, payment method, or failed checkout help.",
+    priority: "Urgent",
+    icon: CreditCard
+  },
+  {
+    id: "wallet",
+    label: "Wallet or payout",
+    body: "Wallet balance, rewards, cash-out, payout timing, or ledger records.",
+    priority: "Normal",
+    icon: WalletCards
+  },
+  {
+    id: "change",
+    label: "Change trip",
+    body: "Flight, hotel, rental car, or bus schedule changes and flexible options.",
+    priority: "Normal",
+    icon: Repeat2
+  }
 ];
 
 const workflowTabs = searchTabs.map(({ id, label, icon }) => ({ id, label, icon }));
@@ -662,6 +730,14 @@ function isWalletRoute() {
   }
 
   return window.location.pathname === "/wallet" || window.location.pathname === "/travel/wallet";
+}
+
+function isSupportRoute() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.location.pathname === "/support" || window.location.pathname === "/travel/support";
 }
 
 function currentPath() {
@@ -1036,6 +1112,144 @@ function saveBookingIntent(intent: BookingIntentResponse, traveler?: TravelerDet
   return saved;
 }
 
+function supportTopicLabel(topic: SupportTopicId) {
+  return supportTopics.find((item) => item.id === topic)?.label || "Booking help";
+}
+
+function supportPriority(topic: SupportTopicId) {
+  return supportTopics.find((item) => item.id === topic)?.priority || "Normal";
+}
+
+function supportChatUrl(reference?: string) {
+  const chat = new URL(bridge.routing.support, engineOrigin);
+  chat.searchParams.set("app", "zivo-travel");
+
+  if (reference) {
+    chat.searchParams.set("ticket", reference);
+  }
+
+  return chat.toString();
+}
+
+function localSupportReference() {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+      : `${Date.now()}`.slice(-12);
+
+  return `zts_${random.toLowerCase()}`;
+}
+
+function defaultSupportForm(): SupportForm {
+  const latestTrip = readSavedTrips()[0];
+
+  return {
+    name: latestTrip?.traveler?.name || defaultTravelerDetails.name,
+    email: latestTrip?.traveler?.email || "",
+    bookingReference: latestTrip?.bookingReference || "",
+    topic: "booking",
+    message: latestTrip
+      ? `Please help with ${latestTrip.resultTitle}.`
+      : "Please help me with my Zivo Travel booking."
+  };
+}
+
+function sanitizeSupportForm(value: Partial<SupportForm>): SupportForm {
+  const rawTopic = value.topic;
+  const topic = rawTopic === "payment" || rawTopic === "wallet" || rawTopic === "change" ? rawTopic : "booking";
+
+  return {
+    name: typeof value.name === "string" && value.name.trim() ? value.name.trim().slice(0, 120) : defaultTravelerDetails.name,
+    email: typeof value.email === "string" ? value.email.trim().slice(0, 180) : "",
+    bookingReference: typeof value.bookingReference === "string" ? value.bookingReference.trim().slice(0, 80) : "",
+    topic,
+    message: typeof value.message === "string" && value.message.trim()
+      ? value.message.trim().slice(0, 520)
+      : "Please help me with my Zivo Travel booking."
+  };
+}
+
+function localSupportTicket(form: SupportForm): SupportTicketResponse {
+  const details = sanitizeSupportForm(form);
+  const reference = localSupportReference();
+
+  return {
+    app: "zivo-travel",
+    mode: "local_support_preview",
+    persisted: false,
+    reason: "local_preview",
+    ticket: {
+      reference,
+      status: "preview",
+      topic: details.topic,
+      priority: supportPriority(details.topic),
+      summary: details.message,
+      customer: details.name,
+      bookingReference: details.bookingReference || undefined,
+      chatUrl: supportChatUrl(reference),
+      createdAt: new Date().toISOString()
+    },
+    checkedAt: new Date().toISOString()
+  };
+}
+
+function normalizeSupportTicket(value: unknown): SupportTicket | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const ticket = value as Partial<SupportTicket>;
+
+  if (typeof ticket.reference !== "string" || typeof ticket.summary !== "string") {
+    return null;
+  }
+
+  return {
+    reference: ticket.reference,
+    status: ticket.status || "preview",
+    topic: ticket.topic || "booking",
+    priority: ticket.priority || supportPriority(ticket.topic || "booking"),
+    summary: ticket.summary,
+    customer: ticket.customer || defaultTravelerDetails.name,
+    bookingReference: ticket.bookingReference,
+    chatUrl: ticket.chatUrl || supportChatUrl(ticket.reference),
+    createdAt: ticket.createdAt || new Date().toISOString()
+  };
+}
+
+function readSupportTickets() {
+  if (typeof window === "undefined") {
+    return [] as SupportTicket[];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(supportTicketsKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(parsed)
+      ? parsed.map(normalizeSupportTicket).filter((ticket): ticket is SupportTicket => Boolean(ticket))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSupportTickets(tickets: SupportTicket[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(supportTicketsKey, JSON.stringify(tickets.slice(0, 12)));
+  window.dispatchEvent(new Event(supportTicketsEvent));
+}
+
+function saveSupportTicket(response: SupportTicketResponse) {
+  const current = readSupportTickets().filter((ticket) => ticket.reference !== response.ticket.reference);
+  writeSupportTickets([response.ticket, ...current]);
+
+  return response.ticket;
+}
+
 function fallbackAdminQueue(): AdminQueuePayload {
   const savedRows = readSavedTrips().map((trip) => ({
     id: trip.bookingReference,
@@ -1142,13 +1356,16 @@ function money(currency: string, amount: number) {
   return `${option.code} ${formatted}${option.symbol}`;
 }
 
-function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripType = "Round trip") {
+function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripType = "Round trip", count = 1) {
+  const safeCount = Math.max(1, Math.min(9, count));
+
   if (kind === "hotels") {
     const params = new URLSearchParams({
       city: route.to,
       ci: defaultDates.depart,
       co: defaultDates.return,
-      adults: "1"
+      adults: String(safeCount),
+      rooms: String(Math.max(1, Math.ceil(safeCount / 2)))
     });
 
     return `/hotels?${params.toString()}`;
@@ -1158,7 +1375,8 @@ function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripT
     const params = new URLSearchParams({
       city: route.to,
       pickup_date: defaultDates.depart,
-      return_date: defaultDates.return
+      return_date: defaultDates.return,
+      drivers: String(safeCount)
     });
 
     return `/cars?${params.toString()}`;
@@ -1168,7 +1386,8 @@ function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripT
     const params = new URLSearchParams({
       from: route.from,
       to: route.to,
-      date: defaultDates.depart
+      date: defaultDates.depart,
+      passengers: String(safeCount)
     });
 
     return `/bus?${params.toString()}`;
@@ -1178,7 +1397,7 @@ function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripT
     from: route.from,
     to: route.to,
     start: defaultDates.depart,
-    travelers: "1",
+    travelers: String(safeCount),
     tripType: tripType.toLowerCase().replace(/\s+/g, "-")
   });
 
@@ -1225,6 +1444,7 @@ function fallbackQuote(kind: SearchKind): QuotePayload {
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
   const [savedTripCount, setSavedTripCount] = useState(() => readSavedTrips().length);
+  const [supportTicketCount, setSupportTicketCount] = useState(() => readSupportTickets().length);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [currency, setCurrency] = useState<CurrencyCode>(() => readCurrency());
   const [currencyOpen, setCurrencyOpen] = useState(false);
@@ -1234,6 +1454,7 @@ function App() {
   const dealsRoute = isDealsRoute();
   const opsRoute = isOpsRoute();
   const walletRoute = isWalletRoute();
+  const supportRoute = isSupportRoute();
   const path = currentPath();
 
   useEffect(() => {
@@ -1295,6 +1516,20 @@ function App() {
     return () => {
       window.removeEventListener(savedTripsEvent, refreshTrips);
       window.removeEventListener("storage", refreshTrips);
+    };
+  }, []);
+
+  useEffect(() => {
+    function refreshSupportTickets() {
+      setSupportTicketCount(readSupportTickets().length);
+    }
+
+    window.addEventListener(supportTicketsEvent, refreshSupportTickets);
+    window.addEventListener("storage", refreshSupportTickets);
+
+    return () => {
+      window.removeEventListener(supportTicketsEvent, refreshSupportTickets);
+      window.removeEventListener("storage", refreshSupportTickets);
     };
   }, []);
 
@@ -1434,9 +1669,14 @@ function App() {
             <WalletCards size={16} />
             Wallet
           </a>
-          <a className="pill" href={engineUrl(bridge.routing.support)}>
-            <Circle size={15} />
+          <a
+            className={`pill ${supportRoute ? "active" : ""}`}
+            href={localUrl("/support")}
+            aria-current={supportRoute ? "page" : undefined}
+          >
+            <Headphones size={16} />
             Support
+            {supportTicketCount ? <span className="pill-count">{supportTicketCount}</span> : null}
           </a>
           <button
             className={`icon-btn ${notificationsOpen ? "active" : ""}`}
@@ -1489,6 +1729,13 @@ function App() {
                   <small>Payments and wallet hand off to Zivos Media</small>
                 </span>
               </a>
+              <a href={localUrl("/support")}>
+                <Headphones size={17} />
+                <span>
+                  <b>{supportTicketCount || "No"} support drafts</b>
+                  <small>Create a local ticket before opening Zivos Media chat</small>
+                </span>
+              </a>
             </div>
           ) : null}
         </div>
@@ -1500,6 +1747,8 @@ function App() {
         <TripsPage backendStatus={backendStatus} />
       ) : walletRoute ? (
         <WalletPage backendStatus={backendStatus} />
+      ) : supportRoute ? (
+        <SupportPage backendStatus={backendStatus} />
       ) : opsRoute ? (
         <OpsPage backendStatus={backendStatus} />
       ) : reviewKind ? (
@@ -1557,11 +1806,51 @@ function serviceNote(kind: SearchKind) {
   return "Search live flight fares, flexible tickets, and reward-ready options.";
 }
 
-function searchFields(kind: SearchKind, route: typeof defaultRoute, tripType: TripType): SearchField[] {
+function quantityCopy(kind: SearchKind, count: number, tripType: TripType) {
+  const plural = (single: string, many: string) => (count === 1 ? single : many);
+
   if (kind === "hotels") {
+    return {
+      label: "Guests",
+      value: count,
+      display: `${count} ${plural("guest", "guests")}`,
+      helper: `${Math.max(1, Math.ceil(count / 2))} ${plural("room", "rooms")}`
+    };
+  }
+
+  if (kind === "cars") {
+    return {
+      label: "Drivers",
+      value: count,
+      display: `${count} ${plural("driver", "drivers")}`,
+      helper: "Age 25+"
+    };
+  }
+
+  if (kind === "bus") {
+    return {
+      label: "Passengers",
+      value: count,
+      display: `${count} ${plural("passenger", "passengers")}`,
+      helper: "Reserved seats"
+    };
+  }
+
+  return {
+    label: "Travelers",
+    value: count,
+    display: `${count} ${plural("traveler", "travelers")}`,
+    helper: tripType
+  };
+}
+
+function searchFields(kind: SearchKind, route: typeof defaultRoute, tripType: TripType, count: number): SearchField[] {
+  if (kind === "hotels") {
+    const rooms = Math.max(1, Math.ceil(count / 2));
+
     return [
       { label: "Destination", value: route.to, helper: "Siem Reap city", icon: MapPinned },
-      { label: "Rooms", value: "1 room", helper: "1 adult", icon: BedDouble },
+      { label: "Rooms", value: `${rooms} ${rooms === 1 ? "room" : "rooms"}`, helper: `${count} ${count === 1 ? "guest" : "guests"}`, icon: BedDouble },
       { label: "Check in", value: defaultDates.departLabel, icon: CalendarDays },
       { label: "Check out", value: defaultDates.returnLabel, icon: CalendarDays }
     ];
@@ -1581,7 +1870,7 @@ function searchFields(kind: SearchKind, route: typeof defaultRoute, tripType: Tr
       { label: "From", value: route.from, helper: route.fromCode, icon: MapPinned },
       { label: "To", value: route.to, helper: route.toCode, icon: MapPinned },
       { label: "Travel date", value: defaultDates.departLabel, icon: CalendarDays },
-      { label: "Passengers", value: "1 passenger", helper: "Reserved seat", icon: UserRound }
+      { label: "Passengers", value: `${count} ${count === 1 ? "passenger" : "passengers"}`, helper: "Reserved seats", icon: UserRound }
     ];
   }
 
@@ -1597,20 +1886,59 @@ function searchFields(kind: SearchKind, route: typeof defaultRoute, tripType: Tr
   ];
 }
 
+function searchPerks(kind: SearchKind) {
+  if (kind === "hotels") {
+    return [
+      { label: "Pay later rooms", icon: CreditCard },
+      { label: "Verified stays", icon: BedDouble },
+      { label: "24/7 support", icon: Headphones }
+    ];
+  }
+
+  if (kind === "cars") {
+    return [
+      { label: "Airport pickup", icon: MapPinned },
+      { label: "Insurance ready", icon: ShieldCheck },
+      { label: "Fast checkout", icon: CreditCard }
+    ];
+  }
+
+  if (kind === "bus") {
+    return [
+      { label: "Seat map ready", icon: Bus },
+      { label: "Mobile ticket", icon: ReceiptText },
+      { label: "Instant confirm", icon: BadgeCheck }
+    ];
+  }
+
+  return [
+    { label: "Secure booking", icon: ShieldCheck },
+    { label: "Best price guarantee", icon: BadgeCheck },
+    { label: "Wallet ready", icon: WalletCards }
+  ];
+}
+
 function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null }) {
   const [activeKind, setActiveKind] = useState<SearchKind>("flights");
   const [tripType, setTripType] = useState<TripType>("Round trip");
+  const [searchCount, setSearchCount] = useState(1);
   const [route, setRoute] = useState(defaultRoute);
   const activeTab = searchTabs.find((tab) => tab.id === activeKind) || searchTabs[0];
   const ActiveIcon = activeTab.icon;
-  const fields = searchFields(activeKind, route, tripType);
+  const fields = searchFields(activeKind, route, tripType, searchCount);
   const showTripType = activeKind === "flights";
   const showSwap = activeKind === "flights" || activeKind === "bus";
+  const perks = searchPerks(activeKind);
+  const quantity = quantityCopy(activeKind, searchCount, tripType);
   const resultHref = useMemo(
-    () => localUrl(buildSearchPath(activeKind, route, tripType)),
-    [activeKind, route, tripType]
+    () => localUrl(buildSearchPath(activeKind, route, tripType, searchCount)),
+    [activeKind, route, tripType, searchCount]
   );
   const backendLabel = backendStatus?.mode === "cloudflare_bridge" ? "Backend ready" : "Bridge ready";
+
+  function updateSearchCount(delta: number) {
+    setSearchCount((current) => Math.max(1, Math.min(9, current + delta)));
+  }
 
   function swapRoute() {
     setRoute((current) => ({
@@ -1663,6 +1991,33 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
         </div>
       )}
 
+      <div className="quantity-stepper" aria-label={`${quantity.label} selector`}>
+        <div>
+          <span>{quantity.label}</span>
+          <strong>{quantity.display}</strong>
+          <small>{quantity.helper}</small>
+        </div>
+        <div>
+          <button
+            type="button"
+            aria-label={`Decrease ${quantity.label.toLowerCase()}`}
+            onClick={() => updateSearchCount(-1)}
+            disabled={searchCount <= 1}
+          >
+            <Minus size={16} />
+          </button>
+          <b aria-live="polite">{quantity.value}</b>
+          <button
+            type="button"
+            aria-label={`Increase ${quantity.label.toLowerCase()}`}
+            onClick={() => updateSearchCount(1)}
+            disabled={searchCount >= 9}
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+      </div>
+
       <div className={`flight-fields ${showSwap ? "" : "no-swap"}`}>
         <Field {...fields[0]} />
         {showSwap ? (
@@ -1672,6 +2027,15 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
         ) : null}
         {fields.slice(1).map((field) => (
           <Field key={`${field.label}-${field.value}`} {...field} />
+        ))}
+      </div>
+
+      <div className="search-perks" aria-label={`${activeTab.label} booking benefits`}>
+        {perks.map(({ label, icon: Icon }) => (
+          <span key={label}>
+            <Icon size={15} />
+            {label}
+          </span>
         ))}
       </div>
 
@@ -2269,8 +2633,309 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
             Open Zivos Media wallet
             <ArrowRight size={16} />
           </a>
-          <a href={activeSummary.links.support}>
+          <a href={localUrl("/support")}>
             Support handoff
+            <ArrowRight size={16} />
+          </a>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function supportReasonLabel(response: SupportTicketResponse | null) {
+  if (!response) {
+    return "Ready for travel support";
+  }
+
+  if (response.reason === "missing_supabase_service_role_secret") {
+    return "Waiting for support table secret";
+  }
+
+  if (response.reason === "missing_support_persistence") {
+    return "Preview saved for chat handoff";
+  }
+
+  if (response.reason === "local_preview") {
+    return "Saved in this browser";
+  }
+
+  return response.reason ? formatMode(response.reason) : "Support draft ready";
+}
+
+function SupportPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const [form, setForm] = useState<SupportForm>(() => defaultSupportForm());
+  const [tickets, setTickets] = useState<SupportTicket[]>(() => readSupportTickets());
+  const [lastResponse, setLastResponse] = useState<SupportTicketResponse | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const activeTopic = supportTopics.find((topic) => topic.id === form.topic) || supportTopics[0];
+  const TopicIcon = activeTopic.icon;
+  const latestTicket = lastResponse?.ticket || tickets[0] || null;
+  const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+  const supportLabel = lastResponse
+    ? lastResponse.persisted
+      ? "Supabase ticket"
+      : "Preview ticket"
+    : tickets.length
+      ? "Local tickets"
+      : "Support center";
+
+  function updateForm(field: keyof SupportForm, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function clearSupportDrafts() {
+    writeSupportTickets([]);
+    setTickets([]);
+    setLastResponse(null);
+    setError(null);
+  }
+
+  useEffect(() => {
+    function refreshSupportTickets() {
+      setTickets(readSupportTickets());
+    }
+
+    window.addEventListener(supportTicketsEvent, refreshSupportTickets);
+    window.addEventListener("storage", refreshSupportTickets);
+
+    return () => {
+      window.removeEventListener(supportTicketsEvent, refreshSupportTickets);
+      window.removeEventListener("storage", refreshSupportTickets);
+    };
+  }, []);
+
+  async function createSupportDraft(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (saving) {
+      return;
+    }
+
+    const details = sanitizeSupportForm(form);
+    setForm(details);
+    setSaving(true);
+    setError(null);
+
+    if (!canUseTravelApi()) {
+      const response = localSupportTicket(details);
+      saveSupportTicket(response);
+      setLastResponse(response);
+      setTickets(readSupportTickets());
+      setSaving(false);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/travel/support", {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(details)
+      });
+
+      if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+        throw new Error("Support bridge unavailable");
+      }
+
+      const ticketResponse = await response.json() as SupportTicketResponse;
+      saveSupportTicket(ticketResponse);
+      setLastResponse(ticketResponse);
+      setTickets(readSupportTickets());
+    } catch {
+      const response = localSupportTicket(details);
+      saveSupportTicket(response);
+      setLastResponse(response);
+      setTickets(readSupportTickets());
+      setError("Preview ticket created");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="support-page" aria-label="Zivo Travel support">
+      <div className="support-hero">
+        <div>
+          <a className="back-link" href={localUrl("/")}>
+            <ChevronLeft size={17} />
+            Search
+          </a>
+          <span className="results-icon">
+            <Headphones size={25} />
+          </span>
+          <h1>Travel support</h1>
+          <p>Capture booking context, create a support draft, then continue in Zivos Media chat with the same ticket reference.</p>
+        </div>
+        <div className="review-status">
+          <span>{bridgeLabel}</span>
+          <strong>{supportLabel}</strong>
+          <small>{tickets.length} saved</small>
+        </div>
+      </div>
+
+      <div className="support-layout">
+        <div className="support-main">
+          <div className="support-topic-grid" role="tablist" aria-label="Support topic">
+            {supportTopics.map(({ id, label, body, priority, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                className={id === form.topic ? "active" : ""}
+                role="tab"
+                aria-selected={id === form.topic}
+                onClick={() => updateForm("topic", id)}
+              >
+                <span>
+                  <Icon size={18} />
+                </span>
+                <strong>{label}</strong>
+                <small>{body}</small>
+                <b>{priority}</b>
+              </button>
+            ))}
+          </div>
+
+          <article className="support-form-card">
+            <div className="support-card-head">
+              <span>
+                <TopicIcon size={20} />
+              </span>
+              <div>
+                <h2>Create support draft</h2>
+                <p>{activeTopic.body}</p>
+              </div>
+            </div>
+
+            <form className="support-form" onSubmit={createSupportDraft}>
+              <label>
+                Name
+                <input
+                  type="text"
+                  value={form.name}
+                  autoComplete="name"
+                  onChange={(event) => updateForm("name", event.target.value)}
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={form.email}
+                  autoComplete="email"
+                  placeholder="customer@example.com"
+                  onChange={(event) => updateForm("email", event.target.value)}
+                />
+              </label>
+              <label>
+                Booking reference
+                <input
+                  type="text"
+                  value={form.bookingReference}
+                  placeholder="ztb_..."
+                  onChange={(event) => updateForm("bookingReference", event.target.value)}
+                />
+              </label>
+              <label className="support-message">
+                Message
+                <textarea
+                  value={form.message}
+                  rows={5}
+                  onChange={(event) => updateForm("message", event.target.value)}
+                />
+              </label>
+              <button type="submit" disabled={saving}>
+                {saving ? "Creating draft" : "Create support draft"}
+                <ArrowRight size={18} />
+              </button>
+              {error ? <small className="support-error">{error}</small> : null}
+            </form>
+
+            {latestTicket ? (
+              <div className="support-confirmation" aria-live="polite">
+                <div>
+                  <span>Latest ticket</span>
+                  <strong>{latestTicket.reference}</strong>
+                  <small>{supportReasonLabel(lastResponse)} • {supportTopicLabel(latestTicket.topic)}</small>
+                </div>
+                <a href={latestTicket.chatUrl}>
+                  Open chat
+                  <ArrowRight size={16} />
+                </a>
+              </div>
+            ) : null}
+          </article>
+
+          <article className="support-ticket-list">
+            <div className="support-card-head">
+              <span>
+                <ReceiptText size={20} />
+              </span>
+              <div>
+                <h2>Recent support drafts</h2>
+                <p>Local references stay visible until the Zivos Media chat handoff is completed.</p>
+              </div>
+              {tickets.length ? (
+                <button className="support-clear" type="button" onClick={clearSupportDrafts}>
+                  Clear drafts
+                </button>
+              ) : null}
+            </div>
+            {tickets.length ? (
+              <div className="support-ticket-rows">
+                {tickets.slice(0, 5).map((ticket) => (
+                  <a key={ticket.reference} href={ticket.chatUrl}>
+                    <span>
+                      <Headphones size={17} />
+                    </span>
+                    <div>
+                      <strong>{ticket.reference}</strong>
+                      <small>{ticket.customer} • {supportTopicLabel(ticket.topic)}</small>
+                    </div>
+                    <b>{ticket.priority}</b>
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="support-empty">No support drafts yet. Create one with a booking reference or customer email.</p>
+            )}
+          </article>
+        </div>
+
+        <aside className="support-aside">
+          <h2>Support workflow</h2>
+          <p>Zivo Travel keeps the trip context first, then hands the conversation to Zivos Media for account, payment, wallet, and operator follow-up.</p>
+          <div className="support-chain">
+            <span>
+              <ReceiptText size={16} />
+              Trip context
+            </span>
+            <span>
+              <Headphones size={16} />
+              Support draft
+            </span>
+            <span>
+              <Link2 size={16} />
+              Zivos Media chat
+            </span>
+            <span>
+              <WalletCards size={16} />
+              Wallet follow-up
+            </span>
+          </div>
+          <a href={latestTicket?.chatUrl || supportChatUrl()}>
+            Open Zivos Media chat
+            <ArrowRight size={16} />
+          </a>
+          <a href={localUrl("/trips")}>
+            My trips
+            <ArrowRight size={16} />
+          </a>
+          <a href={localUrl("/wallet")}>
+            Wallet
             <ArrowRight size={16} />
           </a>
         </aside>

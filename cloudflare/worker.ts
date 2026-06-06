@@ -19,6 +19,7 @@ type TravelerDetails = {
   phone: string;
   preference: string;
 };
+type SupportTopic = "booking" | "payment" | "wallet" | "change";
 type DealPackage = {
   id: string;
   title: string;
@@ -186,6 +187,20 @@ function serviceName(kind: SearchKind) {
   return "Bus";
 }
 
+function normalizeSupportTopic(value: unknown): SupportTopic {
+  if (value === "payment" || value === "wallet" || value === "change") {
+    return value;
+  }
+
+  return "booking";
+}
+
+function supportPriority(topic: SupportTopic) {
+  if (topic === "payment") return "Urgent";
+  if (topic === "booking") return "Fast";
+  return "Normal";
+}
+
 function findDeal(dealId?: string | null) {
   return dealPackages.find((deal) => deal.id === dealId) || null;
 }
@@ -232,6 +247,10 @@ function dealFromRow(row: Record<string, unknown>) {
 
 function createBookingReference() {
   return `ztb_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+function createSupportReference() {
+  return `zts_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
 function withBookingReference(rawUrl: string, bookingReference: string) {
@@ -816,6 +835,39 @@ async function findBookingIntent(requestUrl: URL, env: Env) {
   };
 }
 
+async function createSupportTicket(request: Request, env: Env) {
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const topic = normalizeSupportTopic(body.topic);
+  const reference = createSupportReference();
+  const origin = platformOrigin(env);
+  const chat = new URL(routePaths.support, origin);
+  const name = cleanText(body.name, "Guest Traveler", 120);
+  const summary = cleanText(body.message, "Please help me with my Zivo Travel booking.", 520);
+  const bookingReference = cleanText(body.bookingReference, "", 80);
+
+  chat.searchParams.set("app", "zivo-travel");
+  chat.searchParams.set("ticket", reference);
+
+  return {
+    app: "zivo-travel",
+    mode: "support_bridge_preview",
+    persisted: false,
+    reason: "missing_support_persistence",
+    ticket: {
+      reference,
+      status: "preview",
+      topic,
+      priority: supportPriority(topic),
+      summary,
+      customer: name,
+      bookingReference: bookingReference || undefined,
+      chatUrl: chat.toString(),
+      createdAt: new Date().toISOString(),
+    },
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -836,7 +888,7 @@ export default {
     }
 
     if (url.pathname === "/sitemap.xml") {
-      const pages = ["", "flights", "hotels", "cars", "bus", "deals", "trips", "ops", "wallet", "booking/review"].map(
+      const pages = ["", "flights", "hotels", "cars", "bus", "deals", "trips", "ops", "wallet", "support", "booking/review"].map(
         (path) => `  <url><loc>https://zivostravel.com/${path}</loc></url>`,
       );
 
@@ -901,6 +953,27 @@ export default {
       }
 
       return json(request, buildWalletSummary(env));
+    }
+
+    if (url.pathname === "/api/travel/support") {
+      if (request.method === "GET") {
+        return json(request, {
+          app: "zivo-travel",
+          mode: "support_bridge",
+          persisted: false,
+          reason: "missing_support_persistence",
+          provider: "zivosmedia",
+          topics: ["booking", "payment", "wallet", "change"],
+          supportUrl: new URL(routePaths.support, platformOrigin(env)).toString(),
+          checkedAt: new Date().toISOString(),
+        });
+      }
+
+      if (request.method !== "POST") {
+        return json(request, { error: "method_not_allowed" }, 405);
+      }
+
+      return json(request, await createSupportTicket(request, env));
     }
 
     if (url.pathname === "/api/travel/admin/queue") {

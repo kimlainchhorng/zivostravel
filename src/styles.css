@@ -423,7 +423,7 @@ button {
 
 .search-panel {
   min-height: 418px;
-  height: 418px;
+  height: auto;
   padding: 29px 36px 22px;
   border-radius: 44px;
 }
@@ -489,6 +489,72 @@ button {
 .service-note svg {
   flex: 0 0 auto;
   color: #075af2;
+}
+
+.quantity-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 54px;
+  margin: -8px 0 12px;
+  padding: 8px 10px 8px 16px;
+  border: 1px solid rgba(33, 86, 139, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.quantity-stepper > div:first-child {
+  min-width: 0;
+}
+
+.quantity-stepper span,
+.quantity-stepper small {
+  display: block;
+  color: #64788f;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.quantity-stepper strong {
+  display: block;
+  margin-top: 2px;
+  color: #07162c;
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.quantity-stepper > div:last-child {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.quantity-stepper button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  color: #07162c;
+  background: #eef7ff;
+  cursor: pointer;
+}
+
+.quantity-stepper button:disabled {
+  color: #9aa9ba;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.quantity-stepper b {
+  display: grid;
+  min-width: 28px;
+  place-items: center;
+  color: #075af2;
+  font-size: 16px;
 }
 
 .trip-type button {
@@ -591,8 +657,8 @@ button {
 .search-footer {
   gap: 16px;
   justify-content: space-between;
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid rgba(33, 86, 139, 0.12);
 }
 
@@ -618,6 +684,36 @@ button {
 }
 
 .mini-proof svg {
+  color: #075af2;
+}
+
+.search-perks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.search-perks span {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid rgba(33, 86, 139, 0.1);
+  border-radius: 999px;
+  color: #415b77;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.search-perks svg {
+  flex: 0 0 auto;
   color: #075af2;
 }
 
@@ -2901,6 +2997,382 @@ button {
   opacity: 0.72;
 }
 
+.support-page {
+  max-width: 1760px;
+  margin: 0 auto;
+}
+
+.support-hero {
+  display: grid;
+  min-height: 310px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.28fr);
+  gap: 26px;
+  align-items: end;
+  padding: 36px 42px;
+  border: 1px solid rgba(35, 88, 145, 0.12);
+  border-radius: 42px;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(255, 183, 77, 0.18), transparent 28%),
+    radial-gradient(circle at 52% 112%, rgba(7, 90, 242, 0.13), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(228, 244, 255, 0.78));
+  box-shadow:
+    0 26px 80px rgba(44, 102, 160, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.support-hero h1 {
+  max-width: 900px;
+  margin: 16px 0 10px;
+  color: #07162c;
+  font-size: clamp(54px, 6vw, 98px);
+  line-height: 0.92;
+}
+
+.support-hero p {
+  max-width: 780px;
+  margin: 0;
+  color: #536b86;
+  font-size: 20px;
+}
+
+.support-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.32fr);
+  gap: 22px;
+  align-items: start;
+  margin-top: 24px;
+}
+
+.support-main {
+  display: grid;
+  gap: 18px;
+}
+
+.support-topic-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.support-topic-grid button,
+.support-form-card,
+.support-ticket-list,
+.support-aside {
+  border: 1px solid rgba(35, 88, 145, 0.12);
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    0 22px 60px rgba(44, 102, 160, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24px);
+}
+
+.support-topic-grid button {
+  display: grid;
+  min-height: 178px;
+  align-content: start;
+  gap: 8px;
+  padding: 18px;
+  color: #183452;
+  cursor: pointer;
+  text-align: left;
+}
+
+.support-topic-grid button.active {
+  border-color: rgba(7, 90, 242, 0.34);
+  background:
+    linear-gradient(145deg, rgba(238, 247, 255, 0.9), rgba(255, 255, 255, 0.96)),
+    #ffffff;
+  box-shadow:
+    0 22px 60px rgba(44, 102, 160, 0.12),
+    inset 0 0 0 1px rgba(7, 90, 242, 0.08);
+}
+
+.support-topic-grid span,
+.support-card-head > span,
+.support-ticket-rows > a > span {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 15px;
+  color: #075af2;
+  background: linear-gradient(145deg, #edf7ff, #ffffff);
+}
+
+.support-topic-grid strong {
+  color: #07162c;
+  font-size: 20px;
+}
+
+.support-topic-grid small {
+  color: #61748a;
+  line-height: 1.35;
+}
+
+.support-topic-grid b {
+  align-self: end;
+  justify-self: start;
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: #063a7d;
+  font-size: 12px;
+  background: #eef7ff;
+}
+
+.support-form-card,
+.support-ticket-list,
+.support-aside {
+  padding: 22px;
+}
+
+.support-card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.support-card-head > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.support-card-head h2,
+.support-aside h2 {
+  margin: 0;
+  color: #07162c;
+  font-size: 27px;
+}
+
+.support-card-head p,
+.support-aside p {
+  margin: 7px 0 0;
+  color: #61748a;
+  line-height: 1.45;
+}
+
+.support-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.support-form label {
+  display: grid;
+  gap: 8px;
+  color: #183452;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.support-form input,
+.support-form textarea {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid rgba(33, 86, 139, 0.14);
+  border-radius: 14px;
+  color: #07162c;
+  background: #ffffff;
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+  padding: 11px 13px;
+}
+
+.support-form textarea {
+  resize: vertical;
+}
+
+.support-form input:focus,
+.support-form textarea:focus {
+  border-color: rgba(7, 90, 242, 0.45);
+  box-shadow: 0 0 0 4px rgba(7, 90, 242, 0.08);
+}
+
+.support-message,
+.support-form button,
+.support-error {
+  grid-column: 1 / -1;
+}
+
+.support-form button {
+  display: inline-flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 0;
+  border-radius: 15px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #126bff, #064ce8);
+  cursor: pointer;
+  font-weight: 900;
+  box-shadow: 0 18px 38px rgba(8, 86, 236, 0.2);
+}
+
+.support-form button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.support-clear {
+  flex: 0 0 auto;
+  min-height: 38px;
+  border: 1px solid rgba(33, 86, 139, 0.12);
+  border-radius: 999px;
+  padding: 0 14px;
+  color: #415b77;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.support-clear:hover {
+  color: #075af2;
+  background: #eef7ff;
+}
+
+.support-error {
+  color: #075af2;
+  font-weight: 850;
+}
+
+.support-confirmation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(7, 90, 242, 0.16);
+  border-radius: 18px;
+  background: linear-gradient(135deg, #edf7ff, #ffffff);
+}
+
+.support-confirmation span,
+.support-confirmation small {
+  display: block;
+  color: #61748a;
+  font-weight: 850;
+}
+
+.support-confirmation strong {
+  display: block;
+  margin: 3px 0;
+  color: #07162c;
+  font-size: 24px;
+}
+
+.support-confirmation a,
+.support-aside a,
+.support-ticket-rows a {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.support-confirmation a {
+  min-height: 44px;
+  flex: 0 0 auto;
+  justify-content: center;
+  padding: 0 16px;
+  border-radius: 14px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #126bff, #064ce8);
+  font-weight: 900;
+}
+
+.support-ticket-list {
+  display: grid;
+  gap: 18px;
+}
+
+.support-ticket-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.support-ticket-rows a {
+  min-height: 68px;
+  padding: 12px;
+  border: 1px solid rgba(35, 88, 145, 0.1);
+  border-radius: 18px;
+  color: #183452;
+  background: #ffffff;
+}
+
+.support-ticket-rows div {
+  min-width: 0;
+  flex: 1;
+}
+
+.support-ticket-rows strong,
+.support-ticket-rows small {
+  display: block;
+}
+
+.support-ticket-rows small {
+  margin-top: 3px;
+  color: #61748a;
+}
+
+.support-ticket-rows b {
+  color: #075af2;
+  font-size: 13px;
+}
+
+.support-empty {
+  margin: 0;
+  color: #61748a;
+  line-height: 1.5;
+}
+
+.support-aside {
+  position: sticky;
+  top: 18px;
+}
+
+.support-aside p {
+  margin-bottom: 18px;
+}
+
+.support-chain {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.support-chain span {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid rgba(35, 88, 145, 0.1);
+  border-radius: 14px;
+  color: #183452;
+  background: #ffffff;
+  font-weight: 850;
+}
+
+.support-chain svg {
+  color: #075af2;
+}
+
+.support-aside a {
+  width: 100%;
+  min-height: 44px;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding: 0 16px;
+  border-radius: 14px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #126bff, #064ce8);
+  font-weight: 900;
+}
+
 .workflow-band {
   display: grid;
   grid-template-columns: minmax(330px, 0.82fr) minmax(520px, 1.2fr) minmax(360px, 0.88fr);
@@ -3182,6 +3654,7 @@ button {
   .trips-layout,
   .ops-layout,
   .wallet-layout,
+  .support-layout,
   .deals-grid,
   .workflow-band,
   .trust-strip {
@@ -3192,7 +3665,8 @@ button {
   .review-checkout,
   .trips-aside,
   .ops-aside,
-  .wallet-aside {
+  .wallet-aside,
+  .support-aside {
     position: static;
   }
 
@@ -3308,6 +3782,22 @@ button {
     line-height: 1.25;
   }
 
+  .quantity-stepper {
+    min-height: 46px;
+    margin: -4px 0 10px;
+    padding: 7px 8px 7px 12px;
+    border-radius: 15px;
+  }
+
+  .quantity-stepper strong {
+    font-size: 14px;
+  }
+
+  .quantity-stepper button {
+    width: 30px;
+    height: 30px;
+  }
+
   .trip-type button {
     padding-left: 22px;
     font-size: 13px;
@@ -3411,6 +3901,18 @@ button {
     margin-top: 12px;
     padding-top: 0;
     border-top: 0;
+  }
+
+  .search-perks {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  .search-perks span {
+    min-height: 32px;
+    justify-content: flex-start;
+    font-size: 12px;
   }
 
   .mini-proof {
@@ -3612,6 +4114,14 @@ button {
   .wallet-grid {
     grid-template-columns: 1fr;
   }
+
+  .support-topic-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .support-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -3722,6 +4232,13 @@ button {
     border-radius: 28px;
   }
 
+  .support-hero {
+    display: block;
+    min-height: auto;
+    padding: 24px 18px;
+    border-radius: 28px;
+  }
+
   .deals-hero {
     display: block;
     min-height: auto;
@@ -3734,6 +4251,7 @@ button {
   .trips-hero h1,
   .ops-hero h1,
   .wallet-hero h1,
+  .support-hero h1,
   .deals-hero h1 {
     font-size: 38px;
   }
@@ -3743,6 +4261,7 @@ button {
   .trips-hero p,
   .ops-hero p,
   .wallet-hero p,
+  .support-hero p,
   .deals-hero p {
     font-size: 16px;
   }
@@ -3920,6 +4439,31 @@ button {
     align-items: flex-start;
   }
 
+  .support-topic-grid,
+  .support-form {
+    grid-template-columns: 1fr;
+  }
+
+  .support-topic-grid button {
+    min-height: 142px;
+    padding: 16px;
+  }
+
+  .support-form-card,
+  .support-ticket-list,
+  .support-aside {
+    padding: 18px;
+  }
+
+  .support-confirmation {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .support-confirmation a {
+    width: 100%;
+  }
+
   .trip-type {
     gap: 13px;
     flex-wrap: wrap;
@@ -3929,6 +4473,16 @@ button {
     min-height: 40px;
     margin-bottom: 14px;
     line-height: 1.35;
+  }
+
+  .quantity-stepper {
+    align-items: stretch;
+    flex-direction: column;
+    margin-top: 0;
+  }
+
+  .quantity-stepper > div:last-child {
+    justify-content: space-between;
   }
 
   .flight-fields {
@@ -3991,6 +4545,14 @@ button {
 
   .swap-btn {
     margin-inline: -2px;
+  }
+
+  .search-perks {
+    grid-template-columns: 1fr;
+  }
+
+  .search-perks span {
+    justify-content: flex-start;
   }
 
   .search-footer {
