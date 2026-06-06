@@ -115,6 +115,7 @@ type ReviewSession = {
   walletUrl: string;
   payoutUrl: string;
   ssoUrl: string;
+  deal?: DealPackage;
   steps: Array<{ label: string; status: string }>;
   ledger: Array<{ label: string; value: string }>;
 };
@@ -134,6 +135,7 @@ type BookingRecord = {
   checkoutUrl: string;
   ssoUrl: string;
   createdAt: string | null;
+  dealId?: string;
   traveler?: TravelerDetails;
 };
 type BookingIntentResponse = {
@@ -345,7 +347,7 @@ function mergeDealsWithLocalImages(payload: DealsPayload): DealsPayload {
     return {
       ...deal,
       image: deal.image || localDeal?.image || routePhnomPenhImage,
-      reviewUrl: deal.reviewUrl || reviewUrl(deal.reviewKind, deal.resultId)
+      reviewUrl: deal.reviewUrl || reviewUrl(deal.reviewKind, deal.resultId, deal.id)
     };
   });
 
@@ -550,6 +552,31 @@ function isDealsRoute() {
   return window.location.pathname === "/deals";
 }
 
+function currentPath() {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+
+  return window.location.pathname;
+}
+
+function isPrimaryNavActive(label: string, href: string) {
+  const path = currentPath();
+
+  if (label === "Deals") {
+    return path === "/deals";
+  }
+
+  const hrefPath = href.split("?")[0];
+
+  if (path === "/booking/review") {
+    const type = currentReviewKind();
+    return type ? hrefPath.includes(type) : label === "Flights";
+  }
+
+  return path === hrefPath;
+}
+
 function canUseTravelApi() {
   if (typeof window === "undefined") {
     return false;
@@ -558,7 +585,7 @@ function canUseTravelApi() {
   return !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 }
 
-function checkoutUrl(kind: SearchKind, resultId?: string) {
+function checkoutUrl(kind: SearchKind, resultId?: string, dealId?: string) {
   const params = new URLSearchParams({
     product: kind,
     from: defaultRoute.from,
@@ -572,10 +599,14 @@ function checkoutUrl(kind: SearchKind, resultId?: string) {
     params.set("result", resultId);
   }
 
+  if (dealId) {
+    params.set("deal", dealId);
+  }
+
   return engineUrl(`/travel/checkout?${params.toString()}`);
 }
 
-function reviewUrl(kind: SearchKind, resultId?: string) {
+function reviewUrl(kind: SearchKind, resultId?: string, dealId?: string) {
   const params = new URLSearchParams({
     type: kind,
     from: defaultRoute.from,
@@ -587,6 +618,10 @@ function reviewUrl(kind: SearchKind, resultId?: string) {
 
   if (resultId) {
     params.set("result", resultId);
+  }
+
+  if (dealId) {
+    params.set("deal", dealId);
   }
 
   return localUrl(`/booking/review?${params.toString()}`);
@@ -640,6 +675,14 @@ function fallbackResults(kind: SearchKind): ResultsPayload {
   };
 }
 
+function selectedDeal(dealId?: string | null) {
+  return dealPackages.find((deal) => deal.id === dealId) || null;
+}
+
+function dealServiceLabel(kind: SearchKind) {
+  return serviceLabel(serviceType(kind));
+}
+
 function selectedResult(kind: SearchKind, resultId?: string | null): ResultItem {
   const result = resultCatalog[kind].find((item) => item.id === resultId) || resultCatalog[kind][0];
 
@@ -650,13 +693,28 @@ function selectedResult(kind: SearchKind, resultId?: string | null): ResultItem 
   };
 }
 
-function fallbackReviewSession(kind: SearchKind, resultId?: string | null): ReviewSession {
-  const result = selectedResult(kind, resultId);
+function fallbackReviewSession(kind: SearchKind, resultId?: string | null, dealId?: string | null): ReviewSession {
+  const deal = selectedDeal(dealId);
+  const sessionKind = deal?.reviewKind || kind;
+  const baseResult = selectedResult(sessionKind, deal?.resultId || resultId);
+  const result = deal
+    ? {
+        ...baseResult,
+        title: deal.title,
+        provider: "Zivo Deals",
+        detail: deal.body,
+        price: deal.price,
+        rating: deal.highlight,
+        tags: [deal.save, ...deal.services.map(dealServiceLabel), "Bundle"],
+        checkoutUrl: checkoutUrl(sessionKind, baseResult.id, deal.id),
+        reviewUrl: reviewUrl(sessionKind, baseResult.id, deal.id)
+      }
+    : baseResult;
   const serviceFee = Math.max(3, Math.round(result.price * 0.08));
   const total = result.price + serviceFee;
 
   return {
-    product: kind,
+    product: sessionKind,
     label: `Review ${result.title}`,
     summary: result.detail,
     currency: "USD",
@@ -676,6 +734,7 @@ function fallbackReviewSession(kind: SearchKind, resultId?: string | null): Revi
         new URL(result.checkoutUrl).pathname + new URL(result.checkoutUrl).search
       )}`
     ),
+    deal: deal || undefined,
     steps: [
       { label: "Result selected", status: "ready" },
       { label: "Review trip", status: "ready" },
@@ -685,6 +744,7 @@ function fallbackReviewSession(kind: SearchKind, resultId?: string | null): Revi
     ],
     ledger: [
       { label: "Booking source", value: "Zivo Travel" },
+      ...(deal ? [{ label: "Package", value: `${deal.save} bundle` }] : []),
       { label: "Checkout authority", value: "Zivos Media" },
       { label: "Payment rail", value: "Saved methods" },
       { label: "Payout record", value: "Wallet ledger" }
@@ -775,6 +835,7 @@ function localBookingIntent(
       checkoutUrl: withBookingReference(session.checkoutUrl, bookingReference),
       ssoUrl: withBookingReference(session.ssoUrl, bookingReference),
       createdAt: null,
+      dealId: session.deal?.id,
       traveler: travelerDetails
     },
     reason: "local_preview"
@@ -812,6 +873,7 @@ function normalizeSavedTrip(value: unknown): SavedTrip | null {
     checkoutUrl: trip.checkoutUrl,
     ssoUrl: trip.ssoUrl || engineUrl(bridge.routing.authHandoff),
     createdAt: trip.createdAt || null,
+    dealId: trip.dealId,
     traveler: sanitizeTravelerDetails(trip.traveler),
     mode: trip.mode || "local_booking_preview",
     persisted: Boolean(trip.persisted),
@@ -969,6 +1031,7 @@ function App() {
   const reviewKind = currentReviewKind();
   const tripsRoute = isTripsRoute();
   const dealsRoute = isDealsRoute();
+  const path = currentPath();
 
   useEffect(() => {
     let cancelled = false;
@@ -1030,11 +1093,20 @@ function App() {
         </a>
 
         <nav className="nav-links" aria-label="Primary">
-          {navLinks.map(({ label, href }) => (
-            <a key={label} href={localUrl(href)}>
-              {label}
-            </a>
-          ))}
+          {navLinks.map(({ label, href }) => {
+            const active = isPrimaryNavActive(label, href);
+
+            return (
+              <a
+                key={label}
+                className={active ? "active" : ""}
+                href={localUrl(href)}
+                aria-current={active ? "page" : undefined}
+              >
+                {label}
+              </a>
+            );
+          })}
         </nav>
 
         <div className="utility-nav">
@@ -1043,7 +1115,11 @@ function App() {
             USD
             <ChevronDown size={14} />
           </a>
-          <a className="pill" href={localUrl("/trips")}>
+          <a
+            className={`pill ${path === "/trips" || path === "/my-trips" ? "active" : ""}`}
+            href={localUrl("/trips")}
+            aria-current={path === "/trips" || path === "/my-trips" ? "page" : undefined}
+          >
             <UserRound size={16} />
             My trips
           </a>
@@ -1472,7 +1548,7 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
                   <small>from</small>
                   <strong>USD ${deal.price}</strong>
                 </div>
-                <a href={deal.reviewUrl || reviewUrl(deal.reviewKind, deal.resultId)}>
+                <a href={deal.reviewUrl || reviewUrl(deal.reviewKind, deal.resultId, deal.id)}>
                   Select deal
                   <ArrowRight size={17} />
                 </a>
@@ -1793,10 +1869,11 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
 }
 
 function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatus: BackendStatus | null }) {
-  const resultId =
-    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("result");
-  const [session, setSession] = useState<ReviewSession>(() => fallbackReviewSession(kind, resultId));
-  const activeSession = session.product === kind ? session : fallbackReviewSession(kind, resultId);
+  const searchParams = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+  const resultId = searchParams?.get("result") || null;
+  const dealId = searchParams?.get("deal") || null;
+  const [session, setSession] = useState<ReviewSession>(() => fallbackReviewSession(kind, resultId, dealId));
+  const activeSession = session.product === kind ? session : fallbackReviewSession(kind, resultId, dealId);
   const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
   const Icon = activeTab.icon;
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live handoff" : "Local preview";
@@ -1817,7 +1894,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 
   useEffect(() => {
     const controller = new AbortController();
-    const fallback = fallbackReviewSession(kind, resultId);
+    const fallback = fallbackReviewSession(kind, resultId, dealId);
     setSession(fallback);
     setBookingIntent(null);
     setBookingError(null);
@@ -1840,6 +1917,10 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       params.set("result", resultId);
     }
 
+    if (dealId) {
+      params.set("deal", dealId);
+    }
+
     fetch(`/api/travel/session?${params.toString()}`, {
       headers: { accept: "application/json" },
       signal: controller.signal
@@ -1859,7 +1940,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       });
 
     return () => controller.abort();
-  }, [kind, resultId]);
+  }, [kind, resultId, dealId]);
 
   async function createBookingDraft() {
     if (bookingSaving) {
@@ -1888,6 +1969,10 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       travelers: "1"
     });
 
+    if (activeSession.deal?.id) {
+      params.set("deal", activeSession.deal.id);
+    }
+
     try {
       const response = await fetch(`/api/travel/bookings?${params.toString()}`, {
         method: "POST",
@@ -1898,6 +1983,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
         body: JSON.stringify({
           type: kind,
           resultId: activeSession.result.id,
+          dealId: activeSession.deal?.id,
           traveler: travelerDetails
         })
       });

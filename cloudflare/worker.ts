@@ -150,6 +150,17 @@ function serviceType(kind: SearchKind) {
   return "bus";
 }
 
+function serviceName(kind: SearchKind) {
+  if (kind === "flights") return "Flight";
+  if (kind === "hotels") return "Hotel";
+  if (kind === "cars") return "Rental car";
+  return "Bus";
+}
+
+function findDeal(dealId?: string | null) {
+  return dealPackages.find((deal) => deal.id === dealId) || null;
+}
+
 function cleanText(value: unknown, fallback = "", maxLength = 160) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) || fallback : fallback;
 }
@@ -176,6 +187,18 @@ function travelerFromRow(row: Record<string, unknown>) {
   }
 
   return sanitizeTraveler((payload as Record<string, unknown>).traveler);
+}
+
+function dealFromRow(row: Record<string, unknown>) {
+  const payload = row.request_payload;
+
+  if (!payload || typeof payload !== "object") {
+    return undefined;
+  }
+
+  const deal = (payload as Record<string, unknown>).deal;
+
+  return deal && typeof deal === "object" ? deal as DealPackage : undefined;
 }
 
 function createBookingReference() {
@@ -281,7 +304,7 @@ function resultSummary(kind: SearchKind) {
   return "3 flight options ready for Jun 15, 2026";
 }
 
-function buildCheckoutUrl(requestUrl: URL, env: Env, kind: SearchKind, resultId?: string) {
+function buildCheckoutUrl(requestUrl: URL, env: Env, kind: SearchKind, resultId?: string, dealId?: string) {
   const checkout = new URL(routePaths.checkout, platformOrigin(env));
 
   checkout.searchParams.set("product", kind);
@@ -295,10 +318,14 @@ function buildCheckoutUrl(requestUrl: URL, env: Env, kind: SearchKind, resultId?
     checkout.searchParams.set("result", resultId);
   }
 
+  if (dealId) {
+    checkout.searchParams.set("deal", dealId);
+  }
+
   return checkout.toString();
 }
 
-function buildReviewUrl(requestUrl: URL, kind: SearchKind, resultId?: string) {
+function buildReviewUrl(requestUrl: URL, kind: SearchKind, resultId?: string, dealId?: string) {
   const review = new URL(routePaths.review, requestUrl.origin);
 
   review.searchParams.set("type", kind);
@@ -310,6 +337,10 @@ function buildReviewUrl(requestUrl: URL, kind: SearchKind, resultId?: string) {
 
   if (resultId) {
     review.searchParams.set("result", resultId);
+  }
+
+  if (dealId) {
+    review.searchParams.set("deal", dealId);
   }
 
   return review.toString();
@@ -374,16 +405,29 @@ function buildDeals(requestUrl: URL) {
     provider: "zivosmedia",
     deals: dealPackages.map((deal) => ({
       ...deal,
-      reviewUrl: buildReviewUrl(requestUrl, deal.reviewKind, deal.resultId),
+      reviewUrl: buildReviewUrl(requestUrl, deal.reviewKind, deal.resultId, deal.id),
     })),
     checkedAt: new Date().toISOString(),
   };
 }
 
 function buildReviewSession(requestUrl: URL, env: Env, kind: SearchKind) {
-  const resultId = requestUrl.searchParams.get("result");
-  const result = resultCatalog[kind].find((item) => item.id === resultId) || resultCatalog[kind][0];
-  const checkoutUrl = buildCheckoutUrl(requestUrl, env, kind, result.id);
+  const deal = findDeal(requestUrl.searchParams.get("deal"));
+  const sessionKind = deal?.reviewKind || kind;
+  const resultId = deal?.resultId || requestUrl.searchParams.get("result");
+  const baseResult = resultCatalog[sessionKind].find((item) => item.id === resultId) || resultCatalog[sessionKind][0];
+  const result = deal
+    ? {
+        ...baseResult,
+        title: deal.title,
+        provider: "Zivo Deals",
+        detail: deal.body,
+        price: deal.price,
+        rating: deal.highlight,
+        tags: [deal.save, ...deal.services.map(serviceName), "Bundle"],
+      }
+    : baseResult;
+  const checkoutUrl = buildCheckoutUrl(requestUrl, env, sessionKind, baseResult.id, deal?.id);
   const auth = new URL(routePaths.authHandoff, platformOrigin(env));
   const serviceFee = Math.max(3, Math.round(result.price * 0.08));
 
@@ -393,25 +437,27 @@ function buildReviewSession(requestUrl: URL, env: Env, kind: SearchKind) {
   return {
     app: "zivo-travel",
     mode: "cloudflare_review",
-    product: kind,
+    product: sessionKind,
     label: `Review ${result.title}`,
     summary: result.detail,
     currency: "USD",
     provider: "zivosmedia",
     result: {
       ...result,
-      reviewUrl: buildReviewUrl(requestUrl, kind, result.id),
+      id: baseResult.id,
+      reviewUrl: buildReviewUrl(requestUrl, sessionKind, baseResult.id, deal?.id),
       checkoutUrl,
     },
     subtotal: result.price,
     serviceFee,
     total: result.price + serviceFee,
-    reviewUrl: buildReviewUrl(requestUrl, kind, result.id),
+    reviewUrl: buildReviewUrl(requestUrl, sessionKind, baseResult.id, deal?.id),
     checkoutUrl,
     paymentUrl: new URL(routePaths.paymentMethods, platformOrigin(env)).toString(),
     walletUrl: new URL(routePaths.wallet, platformOrigin(env)).toString(),
     payoutUrl: new URL(routePaths.payout, platformOrigin(env)).toString(),
     ssoUrl: auth.toString(),
+    deal: deal || undefined,
     steps: [
       { label: "Result selected", status: "ready" },
       { label: "Review trip", status: "ready" },
@@ -421,6 +467,7 @@ function buildReviewSession(requestUrl: URL, env: Env, kind: SearchKind) {
     ],
     ledger: [
       { label: "Booking source", value: "Zivo Travel" },
+      ...(deal ? [{ label: "Package", value: `${deal.save} bundle` }] : []),
       { label: "Checkout authority", value: "Zivos Media" },
       { label: "Payment rail", value: "Saved methods" },
       { label: "Payout record", value: "Wallet ledger" },
@@ -436,11 +483,25 @@ function buildBookingRow(
   resultId?: string,
   body?: Record<string, unknown>,
 ) {
-  const result = resultCatalog[kind].find((item) => item.id === resultId) || resultCatalog[kind][0];
+  const bodyDeal = typeof body?.dealId === "string" ? body.dealId : null;
+  const deal = findDeal(requestUrl.searchParams.get("deal") || bodyDeal);
+  const bookingKind = deal?.reviewKind || kind;
+  const baseResult = resultCatalog[bookingKind].find((item) => item.id === (deal?.resultId || resultId)) || resultCatalog[bookingKind][0];
+  const result = deal
+    ? {
+        ...baseResult,
+        title: deal.title,
+        provider: "Zivo Deals",
+        detail: deal.body,
+        price: deal.price,
+        rating: deal.highlight,
+        tags: [deal.save, ...deal.services.map(serviceName), "Bundle"],
+      }
+    : baseResult;
   const serviceFee = Math.max(3, Math.round(result.price * 0.08));
   const bookingReference = createBookingReference();
-  const checkoutUrl = withBookingReference(buildCheckoutUrl(requestUrl, env, kind, result.id), bookingReference);
-  const reviewUrl = withBookingReference(buildReviewUrl(requestUrl, kind, result.id), bookingReference);
+  const checkoutUrl = withBookingReference(buildCheckoutUrl(requestUrl, env, bookingKind, baseResult.id, deal?.id), bookingReference);
+  const reviewUrl = withBookingReference(buildReviewUrl(requestUrl, bookingKind, baseResult.id, deal?.id), bookingReference);
   const auth = new URL(routePaths.authHandoff, platformOrigin(env));
   const travelers = Number.parseInt(requestUrl.searchParams.get("travelers") || "1", 10);
   const traveler = sanitizeTraveler(body?.traveler);
@@ -450,8 +511,8 @@ function buildBookingRow(
 
   return {
     booking_reference: bookingReference,
-    service_type: serviceType(kind),
-    result_id: result.id,
+    service_type: serviceType(bookingKind),
+    result_id: baseResult.id,
     result_title: result.title,
     provider: result.provider,
     origin: requestUrl.searchParams.get("from") || "Phnom Penh",
@@ -470,9 +531,10 @@ function buildBookingRow(
     source_host: requestUrl.host,
     idempotency_key: bookingReference,
     request_payload: {
-      product: kind,
+      product: bookingKind,
       query: Object.fromEntries(requestUrl.searchParams),
       result,
+      deal,
       traveler,
     },
     checkout_payload: {
@@ -485,12 +547,16 @@ function buildBookingRow(
       app: "zivo-travel",
       bridge: "cloudflare",
       authority: "zivosmedia",
+      dealId: deal?.id || null,
+      packageReady: Boolean(deal),
       travelerReady: Boolean(traveler),
     },
   };
 }
 
 function bookingRecordFromRow(row: Record<string, unknown>) {
+  const deal = dealFromRow(row);
+
   return {
     id: row.id || null,
     bookingReference: row.booking_reference,
@@ -507,6 +573,7 @@ function bookingRecordFromRow(row: Record<string, unknown>) {
     checkoutUrl: row.checkout_url,
     ssoUrl: row.sso_url,
     createdAt: row.created_at || null,
+    dealId: deal?.id,
     traveler: travelerFromRow(row),
   };
 }
