@@ -30,6 +30,16 @@ type DealPackage = {
   reviewKind: SearchKind;
   resultId: string;
 };
+type AdminQueueRow = {
+  id: string;
+  customer: string;
+  product: string;
+  route: string;
+  status: string;
+  risk: string;
+  amount: string;
+  lastUpdate: string;
+};
 type ResultTemplate = {
   id: string;
   title: string;
@@ -411,6 +421,70 @@ function buildDeals(requestUrl: URL) {
   };
 }
 
+function buildPreviewAdminQueue(): AdminQueueRow[] {
+  const now = new Date().toISOString();
+
+  return dealPackages.map((deal, index) => ({
+    id: `preview-${deal.id}`,
+    customer: "Guest checkout",
+    product: deal.services.map(serviceName).join(" + "),
+    route: deal.title,
+    status: "Pending Checkout",
+    risk: index === 0 ? "Medium" : "Low",
+    amount: `USD ${deal.price.toFixed(2)}`,
+    lastUpdate: now,
+  }));
+}
+
+async function fetchAdminQueue(requestUrl: URL, env: Env) {
+  const limit = Math.min(Math.max(Number.parseInt(requestUrl.searchParams.get("limit") || "50", 10) || 50, 1), 100);
+
+  if (!env.ZIVO_TRAVEL_SUPABASE_URL || !env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY) {
+    return {
+      app: "zivo-travel",
+      mode: "admin_queue_preview",
+      persisted: false,
+      reason: "missing_supabase_service_role_secret",
+      queue: buildPreviewAdminQueue().slice(0, limit),
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  const endpoint = `${env.ZIVO_TRAVEL_SUPABASE_URL.replace(/\/$/, "")}/rest/v1/rpc/zivo_travel_admin_queue`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      apikey: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY,
+      authorization: `Bearer ${env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY}`,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({ p_limit: limit }),
+  });
+
+  if (!response.ok) {
+    return {
+      app: "zivo-travel",
+      mode: "admin_queue_preview",
+      persisted: false,
+      reason: "supabase_rpc_failed",
+      supabaseStatus: response.status,
+      queue: buildPreviewAdminQueue().slice(0, limit),
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  const queue = await response.json() as AdminQueueRow[];
+
+  return {
+    app: "zivo-travel",
+    mode: "supabase_admin_queue",
+    persisted: true,
+    queue,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 function buildReviewSession(requestUrl: URL, env: Env, kind: SearchKind) {
   const deal = findDeal(requestUrl.searchParams.get("deal"));
   const sessionKind = deal?.reviewKind || kind;
@@ -731,6 +805,7 @@ export default {
         authoritySupabaseUrl: env.ZIVO_AUTHORITY_SUPABASE_URL || null,
         dedicatedBackendEnabled: Boolean(env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY),
         bookingPersistence: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "supabase" : "preview",
+        adminQueue: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "supabase_rpc" : "preview",
         services: travelServices,
         routes: routePaths,
         checkedAt: new Date().toISOString(),
@@ -766,6 +841,14 @@ export default {
 
     if (url.pathname === "/api/travel/deals") {
       return json(request, buildDeals(url));
+    }
+
+    if (url.pathname === "/api/travel/admin/queue") {
+      if (request.method !== "GET") {
+        return json(request, { error: "method_not_allowed" }, 405);
+      }
+
+      return json(request, await fetchAdminQueue(url, env));
     }
 
     if (url.pathname === "/api/travel/session") {
