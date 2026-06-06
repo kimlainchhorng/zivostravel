@@ -52,6 +52,7 @@ type BackendStatus = {
   dedicatedBackendEnabled?: boolean;
   bookingPersistence?: string;
   adminQueue?: string;
+  walletSummary?: string;
   services?: string[];
   routes?: Partial<Record<SearchKind | "checkout" | "wallet" | "support", string>>;
   checkedAt?: string;
@@ -193,6 +194,25 @@ type AdminQueuePayload = {
   reason?: string;
   supabaseStatus?: number;
   queue: AdminQueueRow[];
+  checkedAt: string;
+};
+type WalletSummaryPayload = {
+  app: string;
+  mode: string;
+  persisted: boolean;
+  reason?: string;
+  currency: string;
+  available: number;
+  pending: number;
+  rewards: number;
+  methods: Array<{ id: string; label: string; detail: string; status: string }>;
+  payouts: Array<{ id: string; label: string; amount: number; status: string; eta: string }>;
+  links: {
+    wallet: string;
+    paymentMethods: string;
+    payout: string;
+    support: string;
+  };
   checkedAt: string;
 };
 
@@ -578,6 +598,14 @@ function isOpsRoute() {
   }
 
   return window.location.pathname === "/ops" || window.location.pathname === "/travel/ops";
+}
+
+function isWalletRoute() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.location.pathname === "/wallet" || window.location.pathname === "/travel/wallet";
 }
 
 function currentPath() {
@@ -989,6 +1017,39 @@ function fallbackAdminQueue(): AdminQueuePayload {
   };
 }
 
+function fallbackWalletSummary(): WalletSummaryPayload {
+  const savedTrips = readSavedTrips();
+  const pendingDrafts = savedTrips.reduce((total, trip) => total + Number(trip.total || 0), 0);
+
+  return {
+    app: "zivo-travel",
+    mode: "local_wallet_preview",
+    persisted: false,
+    reason: "local_preview",
+    currency: "USD",
+    available: 356.35,
+    pending: pendingDrafts || 116,
+    rewards: 42,
+    methods: [
+      { id: "card-primary", label: "Primary card", detail: "Visa ending 4242", status: "Ready" },
+      { id: "wallet-balance", label: "Travel wallet", detail: "Use balance first", status: "Enabled" },
+      { id: "cash", label: "Cash office", detail: "Counter collection", status: "Fallback" }
+    ],
+    payouts: [
+      { id: "payout-weekly", label: "Weekly cash out", amount: 188, status: "Scheduled", eta: "Jun 10" },
+      { id: "payout-booking", label: "Booking settlement", amount: pendingDrafts || 116, status: "Pending", eta: "After checkout" },
+      { id: "payout-reward", label: "Reward credit", amount: 42, status: "Available", eta: "Now" }
+    ],
+    links: {
+      wallet: engineUrl(bridge.routing.wallet),
+      paymentMethods: engineUrl(bridge.routing.paymentMethods),
+      payout: engineUrl(`${bridge.routing.wallet}?tab=payouts`),
+      support: engineUrl(bridge.routing.support)
+    },
+    checkedAt: new Date().toISOString()
+  };
+}
+
 function serviceLabel(service: string) {
   if (service === "flight") return "Flight";
   if (service === "hotel") return "Hotel";
@@ -1008,6 +1069,10 @@ function formatMode(mode: string) {
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function money(currency: string, amount: number) {
+  return `${currency} $${amount.toFixed(2)}`;
 }
 
 function buildSearchPath(kind: SearchKind, route = defaultRoute, tripType: TripType = "Round trip") {
@@ -1099,6 +1164,7 @@ function App() {
   const tripsRoute = isTripsRoute();
   const dealsRoute = isDealsRoute();
   const opsRoute = isOpsRoute();
+  const walletRoute = isWalletRoute();
   const path = currentPath();
 
   useEffect(() => {
@@ -1163,6 +1229,12 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const activeUtility = document.querySelector(".utility-nav .pill.active");
+
+    activeUtility?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [path]);
+
   return (
     <main className="travel-page">
       <header className="topbar" aria-label="Zivo Travel navigation">
@@ -1214,7 +1286,11 @@ function App() {
             <ReceiptText size={16} />
             Ops
           </a>
-          <a className="pill" href={engineUrl(bridge.routing.wallet)}>
+          <a
+            className={`pill ${path === "/wallet" || path === "/travel/wallet" ? "active" : ""}`}
+            href={localUrl("/wallet")}
+            aria-current={path === "/wallet" || path === "/travel/wallet" ? "page" : undefined}
+          >
             <WalletCards size={16} />
             Wallet
           </a>
@@ -1263,10 +1339,10 @@ function App() {
                   <small>{backendStatus?.adminQueue === "supabase_rpc" ? "Supabase queue ready" : "Preview queue active"}</small>
                 </span>
               </a>
-              <a href={engineUrl(bridge.routing.wallet)}>
+              <a href={localUrl("/wallet")}>
                 <ShieldCheck size={17} />
                 <span>
-                  <b>{backendStatus?.mode === "cloudflare_bridge" ? "Live backend" : "Local preview"}</b>
+                  <b>{backendStatus?.walletSummary === "bridge_ready" ? "Wallet bridge ready" : "Wallet preview"}</b>
                   <small>Payments and wallet hand off to Zivos Media</small>
                 </span>
               </a>
@@ -1279,6 +1355,8 @@ function App() {
         <DealsPage backendStatus={backendStatus} />
       ) : tripsRoute ? (
         <TripsPage backendStatus={backendStatus} />
+      ) : walletRoute ? (
+        <WalletPage backendStatus={backendStatus} />
       ) : opsRoute ? (
         <OpsPage backendStatus={backendStatus} />
       ) : reviewKind ? (
@@ -1840,6 +1918,214 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
               Clear saved drafts
             </button>
           ) : null}
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function walletReasonLabel(summary: WalletSummaryPayload) {
+  if (summary.reason === "missing_supabase_service_role_secret") {
+    return "Waiting for dedicated wallet secret";
+  }
+
+  if (summary.reason === "local_preview") {
+    return "Local payment preview";
+  }
+
+  return summary.reason ? formatMode(summary.reason) : "Zivos Media handoff ready";
+}
+
+function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const [summary, setSummary] = useState<WalletSummaryPayload>(() => fallbackWalletSummary());
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const activeSummary = summary.methods.length ? summary : fallbackWalletSummary();
+  const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+  const walletLabel = activeSummary.persisted ? "Wallet bridge" : "Preview wallet";
+  const totalFunds = activeSummary.available + activeSummary.pending + activeSummary.rewards;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fallback = fallbackWalletSummary();
+    setSummary(fallback);
+
+    if (!canUseTravelApi()) {
+      return () => controller.abort();
+    }
+
+    setLoading(true);
+    fetch("/api/travel/wallet/summary", {
+      headers: { accept: "application/json" },
+      signal: controller.signal
+    })
+      .then((response) => {
+        if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+          throw new Error("Travel wallet summary unavailable");
+        }
+
+        return response.json() as Promise<WalletSummaryPayload>;
+      })
+      .then((walletSummary) => setSummary(walletSummary))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setSummary(fallback);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [refreshToken]);
+
+  return (
+    <section className="wallet-page" aria-label="Travel wallet">
+      <div className="wallet-hero">
+        <div>
+          <a className="back-link" href={localUrl("/")}>
+            <ChevronLeft size={17} />
+            Search
+          </a>
+          <span className="results-icon">
+            <WalletCards size={25} />
+          </span>
+          <h1>Travel wallet</h1>
+          <p>Payments, payout timing, cash-out status, and checkout handoffs stay connected with Zivos Media.</p>
+        </div>
+        <div className="review-status">
+          <span>{bridgeLabel}</span>
+          <strong>{walletLabel}</strong>
+          <small>{new Date(activeSummary.checkedAt).toLocaleString()}</small>
+        </div>
+      </div>
+
+      <div className="wallet-layout">
+        <div className="wallet-main">
+          <article className="wallet-balance-card">
+            <div>
+              <span>Available for cash out</span>
+              <strong>{money(activeSummary.currency, activeSummary.available)}</strong>
+              <p>{walletReasonLabel(activeSummary)}</p>
+            </div>
+            <div className="wallet-card-chip">
+              <span>Zivo</span>
+              <b>Travel</b>
+            </div>
+          </article>
+
+          <div className="wallet-metrics" aria-label="Wallet metrics">
+            <article>
+              <span>Total tracked</span>
+              <strong>{money(activeSummary.currency, totalFunds)}</strong>
+              <small>Balance + pending + rewards</small>
+            </article>
+            <article>
+              <span>Pending payout</span>
+              <strong>{money(activeSummary.currency, activeSummary.pending)}</strong>
+              <small>Releases after checkout</small>
+            </article>
+            <article>
+              <span>Rewards</span>
+              <strong>{money(activeSummary.currency, activeSummary.rewards)}</strong>
+              <small>Ready for next booking</small>
+            </article>
+          </div>
+
+          <div className="wallet-grid">
+            <article className="wallet-panel">
+              <div className="wallet-panel-head">
+                <div>
+                  <h2>Payment methods</h2>
+                  <p>Choose how customers pay before the Zivos Media checkout handoff.</p>
+                </div>
+                <a href={activeSummary.links.paymentMethods}>
+                  Manage
+                  <ArrowRight size={16} />
+                </a>
+              </div>
+              <div className="wallet-list">
+                {activeSummary.methods.map((method) => (
+                  <div key={method.id}>
+                    <span>
+                      <CreditCard size={17} />
+                    </span>
+                    <div>
+                      <strong>{method.label}</strong>
+                      <small>{method.detail}</small>
+                    </div>
+                    <b>{method.status}</b>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+            <article className="wallet-panel">
+              <div className="wallet-panel-head">
+                <div>
+                  <h2>Payouts</h2>
+                  <p>Cash-out and settlement records stay visible before final wallet sync.</p>
+                </div>
+                <a href={activeSummary.links.payout}>
+                  Cash out
+                  <ArrowRight size={16} />
+                </a>
+              </div>
+              <div className="wallet-list payout-list">
+                {activeSummary.payouts.map((payout) => (
+                  <div key={payout.id}>
+                    <span>
+                      <Landmark size={17} />
+                    </span>
+                    <div>
+                      <strong>{payout.label}</strong>
+                      <small>
+                        {payout.status} • {payout.eta}
+                      </small>
+                    </div>
+                    <b>{money(activeSummary.currency, payout.amount)}</b>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <aside className="wallet-aside">
+          <h2>Wallet workflow</h2>
+          <p>Zivo Travel keeps the booking context visible, then sends protected payment, wallet, payout, and support actions to Zivos Media.</p>
+          <div className="wallet-chain">
+            <span>
+              <ReceiptText size={16} />
+              Booking draft
+            </span>
+            <span>
+              <CreditCard size={16} />
+              Pay
+            </span>
+            <span>
+              <WalletCards size={16} />
+              Wallet ledger
+            </span>
+            <span>
+              <Landmark size={16} />
+              Cash out
+            </span>
+          </div>
+          <button type="button" onClick={() => setRefreshToken((token) => token + 1)} disabled={loading}>
+            <Repeat2 size={17} />
+            {loading ? "Refreshing" : "Refresh wallet"}
+          </button>
+          <a href={activeSummary.links.wallet}>
+            Open Zivos Media wallet
+            <ArrowRight size={16} />
+          </a>
+          <a href={activeSummary.links.support}>
+            Support handoff
+            <ArrowRight size={16} />
+          </a>
         </aside>
       </div>
     </section>

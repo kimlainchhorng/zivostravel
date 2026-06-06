@@ -40,6 +40,25 @@ type AdminQueueRow = {
   amount: string;
   lastUpdate: string;
 };
+type WalletSummary = {
+  app: string;
+  mode: string;
+  persisted: boolean;
+  reason?: string;
+  currency: string;
+  available: number;
+  pending: number;
+  rewards: number;
+  methods: Array<{ id: string; label: string; detail: string; status: string }>;
+  payouts: Array<{ id: string; label: string; amount: number; status: string; eta: string }>;
+  links: {
+    wallet: string;
+    paymentMethods: string;
+    payout: string;
+    support: string;
+  };
+  checkedAt: string;
+};
 type ResultTemplate = {
   id: string;
   title: string;
@@ -421,6 +440,38 @@ function buildDeals(requestUrl: URL) {
   };
 }
 
+function buildWalletSummary(env: Env): WalletSummary {
+  const origin = platformOrigin(env);
+
+  return {
+    app: "zivo-travel",
+    mode: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "wallet_bridge_ready" : "wallet_preview",
+    persisted: Boolean(env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY),
+    reason: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? undefined : "missing_supabase_service_role_secret",
+    currency: "USD",
+    available: 356.35,
+    pending: 116,
+    rewards: 42,
+    methods: [
+      { id: "card-primary", label: "Primary card", detail: "Visa ending 4242", status: "Ready" },
+      { id: "wallet-balance", label: "Travel wallet", detail: "Use balance first", status: "Enabled" },
+      { id: "cash", label: "Cash office", detail: "Counter collection", status: "Fallback" },
+    ],
+    payouts: [
+      { id: "payout-weekly", label: "Weekly cash out", amount: 188, status: "Scheduled", eta: "Jun 10" },
+      { id: "payout-booking", label: "Booking settlement", amount: 116, status: "Pending", eta: "After checkout" },
+      { id: "payout-reward", label: "Reward credit", amount: 42, status: "Available", eta: "Now" },
+    ],
+    links: {
+      wallet: new URL(routePaths.wallet, origin).toString(),
+      paymentMethods: new URL(routePaths.paymentMethods, origin).toString(),
+      payout: new URL(routePaths.payout, origin).toString(),
+      support: new URL(routePaths.support, origin).toString(),
+    },
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 function buildPreviewAdminQueue(): AdminQueueRow[] {
   const now = new Date().toISOString();
 
@@ -785,7 +836,7 @@ export default {
     }
 
     if (url.pathname === "/sitemap.xml") {
-      const pages = ["", "flights", "hotels", "cars", "bus", "deals", "trips", "booking/review"].map(
+      const pages = ["", "flights", "hotels", "cars", "bus", "deals", "trips", "ops", "wallet", "booking/review"].map(
         (path) => `  <url><loc>https://zivostravel.com/${path}</loc></url>`,
       );
 
@@ -806,6 +857,7 @@ export default {
         dedicatedBackendEnabled: Boolean(env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY),
         bookingPersistence: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "supabase" : "preview",
         adminQueue: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "supabase_rpc" : "preview",
+        walletSummary: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY ? "bridge_ready" : "preview",
         services: travelServices,
         routes: routePaths,
         checkedAt: new Date().toISOString(),
@@ -841,6 +893,14 @@ export default {
 
     if (url.pathname === "/api/travel/deals") {
       return json(request, buildDeals(url));
+    }
+
+    if (url.pathname === "/api/travel/wallet/summary") {
+      if (request.method !== "GET") {
+        return json(request, { error: "method_not_allowed" }, 405);
+      }
+
+      return json(request, buildWalletSummary(env));
     }
 
     if (url.pathname === "/api/travel/admin/queue") {
