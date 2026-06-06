@@ -1,0 +1,60 @@
+{
+  "name": "Zivo Travel Bridge",
+  "status": "migration_bridge",
+  "domain": "https://zivostravel.com",
+  "platformOrigin": "https://zivosmedia.com",
+  "travelOrigin": "https://zivostravel.com",
+  "ownership": {
+    "standaloneProductRepo": "zivostravel",
+    "platformRepo": "zivosmedia",
+    "customerProduct": "Zivo Travel",
+    "platformProduct": "Zivos Media"
+  },
+  "authAuthority": {
+    "provider": "supabase",
+    "projectRef": "slirphzzwcogdbkeicff",
+    "role": "zivosmedia_identity_authority",
+    "mode": "centralized"
+  },
+  "travelProject": {
+    "provider": "supabase",
+    "projectRef": "xbllvmpomorawkcrtbcq",
+    "url": "https://xbllvmpomorawkcrtbcq.supabase.co",
+    "role": "travel_telemetry_config_and_staged_migration",
+    "dedicatedBackendEnabled": false
+  },
+  "routing": {
+    "home": "/zivo-travel",
+    "flights": "/flights",
+    "hotels": "/hotels",
+    "cars": "/cars",
+    "bus": "/bus",
+    "checkout": "/travel/checkout",
+    "wallet": "/wallet",
+    "paymentMethods": "/payment-methods",
+    "support": "/chat",
+    "authHandoff": "/auth/handoff"
+  },
+  "deepLinkContract": {
+    "flightSearch": "/flights?from&to&start&end&travelers",
+    "hotelSearch": "/hotels?city&ci&co&adults",
+    "carSearch": "/cars?city&pickup_date&return_date",
+    "busSearch": "/bus?from&to&date"
+  },
+  "zivosmediaIntegration": {
+    "canShowTravelInsidePlatform": true,
+    "recommendedMode": "deep_link_or_platform_api",
+    "description": "Zivos Media remains the all-in-one platform and can show Zivo Travel through shared routes, handoff links, or API-backed cards while this repo owns the dedicated travel product."
+  },
+  "cloudflare": {
+    "zivostravelHost": "zivostravel.com",
+    "zivosmediaHost": "zivosmedia.com",
+    "recommendedRouting": "Route zivostravel.com to the travel surface and keep zivosmedia.com/zivo-travel available as the platform preview."
+  },
+  "guardrails": [
+    "Keep auth, checkout, wallet, payout, and live bookings on the Zivos Media authority until reviewed cutover.",
+    "Do not duplicate live booking or payment rows into the travel Supabase project without backups and rollback.",
+    "Use the travel Supabase project for telemetry, config, preview data, and staged migrations first.",
+    "Only enable the dedicated backend flag after schema, RLS, Edge Functions, provider secrets, and sandbox smoke tests pass."
+  ]
+}
