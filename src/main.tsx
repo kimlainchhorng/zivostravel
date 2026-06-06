@@ -49,6 +49,8 @@ type BackendStatus = {
   platformOrigin: string;
   travelSupabaseUrl?: string;
   authoritySupabaseUrl?: string;
+  dedicatedBackendEnabled?: boolean;
+  bookingPersistence?: string;
   services?: string[];
   routes?: Partial<Record<SearchKind | "checkout" | "wallet" | "support", string>>;
   checkedAt?: string;
@@ -89,6 +91,12 @@ type ResultsPayload = {
   provider: string;
   mode: string;
   results: ResultItem[];
+};
+type SearchField = {
+  label: string;
+  value: string;
+  helper?: string;
+  icon?: typeof CalendarDays;
 };
 type ReviewSession = {
   product: SearchKind;
@@ -132,6 +140,12 @@ type BookingIntentResponse = {
   persisted: boolean;
   booking: BookingRecord;
   reason?: string;
+};
+type SavedTrip = BookingRecord & {
+  mode: string;
+  persisted: boolean;
+  reason?: string;
+  savedAt: string;
 };
 
 const searchTabs = [
@@ -194,6 +208,9 @@ const defaultDates = {
   departLabel: "Jun 15, 2026",
   returnLabel: "Jun 18, 2026"
 };
+
+const savedTripsKey = "zivo-travel-booking-drafts";
+const savedTripsEvent = "zivo-travel-bookings-updated";
 
 const routes = [
   {
@@ -429,6 +446,14 @@ function currentReviewKind(): SearchKind | null {
   return "flights";
 }
 
+function isTripsRoute() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.location.pathname === "/trips" || window.location.pathname === "/my-trips";
+}
+
 function canUseTravelApi() {
   if (typeof window === "undefined") {
     return false;
@@ -623,6 +648,99 @@ function localBookingIntent(session: ReviewSession, kind: SearchKind): BookingIn
   };
 }
 
+function normalizeSavedTrip(value: unknown): SavedTrip | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const trip = value as Partial<SavedTrip>;
+
+  if (
+    typeof trip.bookingReference !== "string" ||
+    typeof trip.resultTitle !== "string" ||
+    typeof trip.checkoutUrl !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: trip.id || null,
+    bookingReference: trip.bookingReference,
+    status: trip.status || "preview",
+    serviceType: trip.serviceType || "bus",
+    resultId: trip.resultId || "",
+    resultTitle: trip.resultTitle,
+    provider: trip.provider || "Zivo Travel",
+    currency: trip.currency || "USD",
+    subtotal: Number(trip.subtotal || 0),
+    serviceFee: Number(trip.serviceFee || 0),
+    total: Number(trip.total || 0),
+    reviewUrl: trip.reviewUrl || "/trips",
+    checkoutUrl: trip.checkoutUrl,
+    ssoUrl: trip.ssoUrl || engineUrl(bridge.routing.authHandoff),
+    createdAt: trip.createdAt || null,
+    mode: trip.mode || "local_booking_preview",
+    persisted: Boolean(trip.persisted),
+    reason: trip.reason,
+    savedAt: trip.savedAt || new Date().toISOString()
+  };
+}
+
+function readSavedTrips() {
+  if (typeof window === "undefined") {
+    return [] as SavedTrip[];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(savedTripsKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(parsed)
+      ? parsed.map(normalizeSavedTrip).filter((trip): trip is SavedTrip => Boolean(trip))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedTrips(trips: SavedTrip[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(savedTripsKey, JSON.stringify(trips.slice(0, 12)));
+  window.dispatchEvent(new Event(savedTripsEvent));
+}
+
+function saveBookingIntent(intent: BookingIntentResponse) {
+  const saved: SavedTrip = {
+    ...intent.booking,
+    mode: intent.mode,
+    persisted: intent.persisted,
+    reason: intent.reason,
+    savedAt: new Date().toISOString()
+  };
+  const current = readSavedTrips().filter((trip) => trip.bookingReference !== saved.bookingReference);
+
+  writeSavedTrips([saved, ...current]);
+
+  return saved;
+}
+
+function serviceLabel(service: string) {
+  if (service === "flight") return "Flight";
+  if (service === "hotel") return "Hotel";
+  if (service === "rental_car") return "Rental car";
+  return "Bus";
+}
+
+function serviceIcon(service: string) {
+  if (service === "flight") return Plane;
+  if (service === "hotel") return Hotel;
+  if (service === "rental_car") return Car;
+  return Bus;
+}
+
 function formatMode(mode: string) {
   return mode
     .split("_")
@@ -714,6 +832,7 @@ function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
   const routeKind = currentRouteKind();
   const reviewKind = currentReviewKind();
+  const tripsRoute = isTripsRoute();
 
   useEffect(() => {
     let cancelled = false;
@@ -788,7 +907,7 @@ function App() {
             USD
             <ChevronDown size={14} />
           </a>
-          <a className="pill" href={engineUrl("/profile")}>
+          <a className="pill" href={localUrl("/trips")}>
             <UserRound size={16} />
             My trips
           </a>
@@ -812,7 +931,9 @@ function App() {
         </div>
       </header>
 
-      {reviewKind ? (
+      {tripsRoute ? (
+        <TripsPage backendStatus={backendStatus} />
+      ) : reviewKind ? (
         <BookingReview kind={reviewKind} backendStatus={backendStatus} />
       ) : routeKind ? (
         <ResultsPage kind={routeKind} backendStatus={backendStatus} />
@@ -850,11 +971,71 @@ function App() {
   );
 }
 
+function serviceNote(kind: SearchKind) {
+  if (kind === "hotels") {
+    return "Stay search uses live hotel inventory, room count, and pay-later options.";
+  }
+
+  if (kind === "cars") {
+    return "Rental search checks pickup counters, insurance-ready rates, and driver options.";
+  }
+
+  if (kind === "bus") {
+    return "Bus search compares operators, seats, stations, and mobile ticketing.";
+  }
+
+  return "Search live flight fares, flexible tickets, and reward-ready options.";
+}
+
+function searchFields(kind: SearchKind, route: typeof defaultRoute, tripType: TripType): SearchField[] {
+  if (kind === "hotels") {
+    return [
+      { label: "Destination", value: route.to, helper: "Siem Reap city", icon: MapPinned },
+      { label: "Rooms", value: "1 room", helper: "1 adult", icon: BedDouble },
+      { label: "Check in", value: defaultDates.departLabel, icon: CalendarDays },
+      { label: "Check out", value: defaultDates.returnLabel, icon: CalendarDays }
+    ];
+  }
+
+  if (kind === "cars") {
+    return [
+      { label: "Pick-up", value: route.to, helper: "Downtown counter", icon: MapPinned },
+      { label: "Drop-off", value: route.to, helper: "Same location", icon: Car },
+      { label: "Pick up", value: defaultDates.departLabel, helper: "10:00 AM", icon: CalendarDays },
+      { label: "Return", value: defaultDates.returnLabel, helper: "10:00 AM", icon: Clock3 }
+    ];
+  }
+
+  if (kind === "bus") {
+    return [
+      { label: "From", value: route.from, helper: route.fromCode, icon: MapPinned },
+      { label: "To", value: route.to, helper: route.toCode, icon: MapPinned },
+      { label: "Travel date", value: defaultDates.departLabel, icon: CalendarDays },
+      { label: "Passengers", value: "1 passenger", helper: "Reserved seat", icon: UserRound }
+    ];
+  }
+
+  return [
+    { label: "From", value: route.from, helper: route.fromCode, icon: MapPinned },
+    { label: "To", value: route.to, helper: route.toCode, icon: MapPinned },
+    { label: "Depart", value: defaultDates.departLabel, icon: CalendarDays },
+    {
+      label: "Return",
+      value: tripType === "One way" ? "Add later" : defaultDates.returnLabel,
+      icon: CalendarDays
+    }
+  ];
+}
+
 function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null }) {
   const [activeKind, setActiveKind] = useState<SearchKind>("flights");
   const [tripType, setTripType] = useState<TripType>("Round trip");
   const [route, setRoute] = useState(defaultRoute);
   const activeTab = searchTabs.find((tab) => tab.id === activeKind) || searchTabs[0];
+  const ActiveIcon = activeTab.icon;
+  const fields = searchFields(activeKind, route, tripType);
+  const showTripType = activeKind === "flights";
+  const showSwap = activeKind === "flights" || activeKind === "bus";
   const resultHref = useMemo(
     () => localUrl(buildSearchPath(activeKind, route, tripType)),
     [activeKind, route, tripType]
@@ -891,44 +1072,37 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
         ))}
       </div>
 
-      <div className="trip-type" aria-label="Flight trip type">
-        {tripTypes.map((option) => (
-          <button
-            key={option}
-            type="button"
-            className={option === tripType ? "selected" : ""}
-            aria-pressed={option === tripType}
-            onClick={() => setTripType(option)}
-          >
-            {option}
-          </button>
-        ))}
-      </div>
+      {showTripType ? (
+        <div className="trip-type" aria-label="Flight trip type">
+          {tripTypes.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={option === tripType ? "selected" : ""}
+              aria-pressed={option === tripType}
+              onClick={() => setTripType(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="service-note" aria-live="polite">
+          <ActiveIcon size={16} />
+          {serviceNote(activeKind)}
+        </div>
+      )}
 
-      <div className="flight-fields">
-        <Field
-          label={activeKind === "hotels" ? "Destination" : activeKind === "cars" ? "Pick-up" : "From"}
-          value={activeKind === "hotels" || activeKind === "cars" ? route.to : route.from}
-          helper={activeKind === "hotels" ? "City" : activeKind === "cars" ? "Downtown" : route.fromCode}
-        />
-        <button className="swap-btn" type="button" aria-label="Swap route" onClick={swapRoute}>
-          <Repeat2 size={19} />
-        </button>
-        <Field
-          label={activeKind === "hotels" ? "Stay" : activeKind === "cars" ? "Drop-off" : "To"}
-          value={activeKind === "hotels" ? "3 nights" : activeKind === "cars" ? route.to : route.to}
-          helper={activeKind === "hotels" ? "1 room" : activeKind === "cars" ? "Same city" : route.toCode}
-        />
-        <Field
-          icon={CalendarDays}
-          label={activeKind === "cars" ? "Pick up" : activeKind === "bus" ? "Travel date" : activeKind === "hotels" ? "Check in" : "Depart"}
-          value={defaultDates.departLabel}
-        />
-        <Field
-          icon={CalendarDays}
-          label={activeKind === "bus" ? "Seat" : activeKind === "hotels" ? "Check out" : "Return"}
-          value={activeKind === "bus" ? "1 passenger" : tripType === "One way" && activeKind === "flights" ? "Add later" : defaultDates.returnLabel}
-        />
+      <div className={`flight-fields ${showSwap ? "" : "no-swap"}`}>
+        <Field {...fields[0]} />
+        {showSwap ? (
+          <button className="swap-btn" type="button" aria-label="Swap route" onClick={swapRoute}>
+            <Repeat2 size={19} />
+          </button>
+        ) : null}
+        {fields.slice(1).map((field) => (
+          <Field key={`${field.label}-${field.value}`} {...field} />
+        ))}
       </div>
 
       <div className="search-footer">
@@ -1018,22 +1192,45 @@ function BuildTrip() {
 }
 
 function MyTrips() {
+  const [trips, setTrips] = useState<SavedTrip[]>(() => readSavedTrips());
+  const latestTrip = trips[0];
+
+  useEffect(() => {
+    function refresh() {
+      setTrips(readSavedTrips());
+    }
+
+    window.addEventListener(savedTripsEvent, refresh);
+    window.addEventListener("storage", refresh);
+
+    return () => {
+      window.removeEventListener(savedTripsEvent, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
+  const PreviewIcon = latestTrip ? serviceIcon(latestTrip.serviceType) : Plane;
+
   return (
     <article className="mytrip-card">
-      <SectionHeader title="My trips" />
+      <SectionHeader title="My trips" href="/trips" />
       <div className="trip-preview">
         <img src={tripBeachImage} alt="Beach trip" />
         <span>Upcoming</span>
       </div>
       <div className="trip-details">
-        <strong>Phnom Penh → Siem Reap</strong>
-        <small>Jun 15 – Jun 18, 2026 • 1 Traveler</small>
+        <strong>{latestTrip?.resultTitle || "Phnom Penh → Siem Reap"}</strong>
+        <small>
+          {latestTrip
+            ? `${latestTrip.bookingReference} • ${latestTrip.status}`
+            : "Jun 15 – Jun 18, 2026 • 1 Traveler"}
+        </small>
         <div>
           <span>
-            <Plane size={15} />
-            Flight
+            <PreviewIcon size={15} />
+            {latestTrip ? serviceLabel(latestTrip.serviceType) : "Flight"}
           </span>
-          <a href={engineUrl("/profile")}>View details</a>
+          <a href={localUrl(latestTrip?.reviewUrl || "/trips")}>View details</a>
         </div>
         <span>
           <Hotel size={15} />
@@ -1047,6 +1244,140 @@ function MyTrips() {
         <span />
       </div>
     </article>
+  );
+}
+
+function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const [trips, setTrips] = useState<SavedTrip[]>(() => readSavedTrips());
+  const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+  const persistenceLabel =
+    backendStatus?.bookingPersistence === "supabase" ? "Supabase sync ready" : "Browser drafts";
+
+  function clearTrips() {
+    writeSavedTrips([]);
+    setTrips([]);
+  }
+
+  useEffect(() => {
+    function refresh() {
+      setTrips(readSavedTrips());
+    }
+
+    window.addEventListener(savedTripsEvent, refresh);
+    window.addEventListener("storage", refresh);
+
+    return () => {
+      window.removeEventListener(savedTripsEvent, refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
+  return (
+    <section className="trips-page" aria-label="My trips">
+      <div className="trips-hero">
+        <div>
+          <a className="back-link" href={localUrl("/")}>
+            <ChevronLeft size={17} />
+            Search
+          </a>
+          <span className="results-icon">
+            <UserRound size={25} />
+          </span>
+          <h1>My trips</h1>
+          <p>Resume booking drafts, checkout handoffs, and wallet-ready travel records from this browser.</p>
+        </div>
+        <div className="review-status">
+          <span>{bridgeLabel}</span>
+          <strong>{persistenceLabel}</strong>
+          <small>{trips.length} saved</small>
+        </div>
+      </div>
+
+      <div className="trips-layout">
+        <div className="trips-list">
+          {trips.length ? (
+            trips.map((trip) => {
+              const Icon = serviceIcon(trip.serviceType);
+
+              return (
+                <article key={trip.bookingReference} className="trip-row">
+                  <span className="trip-row-icon">
+                    <Icon size={25} />
+                  </span>
+                  <div className="trip-row-main">
+                    <span className="provider">{trip.provider}</span>
+                    <h2>{trip.resultTitle}</h2>
+                    <p>
+                      {trip.bookingReference} • {serviceLabel(trip.serviceType)} • {trip.status}
+                    </p>
+                    <div className="result-tags">
+                      <span>{trip.persisted ? "Supabase intent" : "Preview draft"}</span>
+                      <span>{trip.mode.replace(/_/g, " ")}</span>
+                    </div>
+                  </div>
+                  <div className="trip-row-price">
+                    <small>Total</small>
+                    <strong>
+                      {trip.currency} ${trip.total}
+                    </strong>
+                    <div>
+                      <a href={localUrl(trip.reviewUrl)}>
+                        Review
+                        <ArrowRight size={16} />
+                      </a>
+                      <a href={trip.checkoutUrl}>
+                        Checkout
+                        <ArrowRight size={16} />
+                      </a>
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          ) : (
+            <article className="empty-trips">
+              <span>
+                <ReceiptText size={28} />
+              </span>
+              <h2>No saved trip drafts yet</h2>
+              <p>Create a booking draft from any result page and it will appear here for quick checkout resume.</p>
+              <a href={localUrl(searchTabs[3].href)}>
+                Start with bus
+                <ArrowRight size={18} />
+              </a>
+            </article>
+          )}
+        </div>
+
+        <aside className="trips-aside">
+          <h2>Trip workflow</h2>
+          <p>Saved drafts keep the customer journey connected while checkout, payment, wallet, and payout records stay on Zivos Media.</p>
+          <div>
+            <span>
+              <ReceiptText size={16} />
+              Booking draft
+            </span>
+            <span>
+              <CreditCard size={16} />
+              Checkout handoff
+            </span>
+            <span>
+              <WalletCards size={16} />
+              Wallet record
+            </span>
+          </div>
+          <a href={localUrl("/")}>
+            New search
+            <ArrowRight size={18} />
+          </a>
+          {trips.length ? (
+            <button type="button" onClick={clearTrips}>
+              Clear saved drafts
+            </button>
+          ) : null}
+        </aside>
+      </div>
+    </section>
   );
 }
 
@@ -1279,6 +1610,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 
     if (!canUseTravelApi()) {
       const intent = localBookingIntent(activeSession, kind);
+      saveBookingIntent(intent);
       setBookingIntent(intent);
       setBookingSaving(false);
       return intent;
@@ -1312,10 +1644,12 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       }
 
       const intent = await response.json() as BookingIntentResponse;
+      saveBookingIntent(intent);
       setBookingIntent(intent);
       return intent;
     } catch (error) {
       const intent = localBookingIntent(activeSession, kind);
+      saveBookingIntent(intent);
       setBookingIntent(intent);
       setBookingError("Preview draft created");
       return intent;
@@ -1650,12 +1984,12 @@ function Field({
   );
 }
 
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader({ title, href = searchTabs[0].href }: { title: string; href?: string }) {
   return (
     <div className="section-head">
       <h2>{title}</h2>
       <div>
-        <a href={localUrl(searchTabs[0].href)}>View all</a>
+        <a href={localUrl(href)}>View all</a>
         <button aria-label="Previous">
           <ChevronLeft size={16} />
         </button>

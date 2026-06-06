@@ -385,28 +385,32 @@ function buildBookingRow(requestUrl: URL, env: Env, kind: SearchKind, resultId?:
   };
 }
 
+function bookingRecordFromRow(row: Record<string, unknown>) {
+  return {
+    id: row.id || null,
+    bookingReference: row.booking_reference,
+    status: row.status,
+    serviceType: row.service_type,
+    resultId: row.result_id,
+    resultTitle: row.result_title,
+    provider: row.provider,
+    currency: row.currency,
+    subtotal: row.subtotal,
+    serviceFee: row.service_fee,
+    total: row.total,
+    reviewUrl: row.review_url,
+    checkoutUrl: row.checkout_url,
+    ssoUrl: row.sso_url,
+    createdAt: row.created_at || null,
+  };
+}
+
 function bookingResponseFromRow(row: Record<string, unknown>, mode: string, persisted: boolean) {
   return {
     app: "zivo-travel",
     mode,
     persisted,
-    booking: {
-      id: row.id || null,
-      bookingReference: row.booking_reference,
-      status: row.status,
-      serviceType: row.service_type,
-      resultId: row.result_id,
-      resultTitle: row.result_title,
-      provider: row.provider,
-      currency: row.currency,
-      subtotal: row.subtotal,
-      serviceFee: row.service_fee,
-      total: row.total,
-      reviewUrl: row.review_url,
-      checkoutUrl: row.checkout_url,
-      ssoUrl: row.sso_url,
-      createdAt: row.created_at || null,
-    },
+    booking: bookingRecordFromRow(row),
     checkedAt: new Date().toISOString(),
   };
 }
@@ -452,6 +456,68 @@ async function createBookingIntent(request: Request, requestUrl: URL, env: Env) 
   return bookingResponseFromRow(records[0] || row, "supabase_booking_intent", true);
 }
 
+async function findBookingIntent(requestUrl: URL, env: Env) {
+  const reference = requestUrl.searchParams.get("reference") || requestUrl.searchParams.get("booking_reference");
+
+  if (!reference) {
+    return {
+      app: "zivo-travel",
+      mode: "booking_lookup_requires_reference",
+      persisted: false,
+      bookings: [],
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  if (!env.ZIVO_TRAVEL_SUPABASE_URL || !env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY) {
+    return {
+      app: "zivo-travel",
+      mode: "booking_lookup_preview",
+      persisted: false,
+      reason: "missing_supabase_service_role_secret",
+      reference,
+      bookings: [],
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  const endpoint = new URL(`${env.ZIVO_TRAVEL_SUPABASE_URL.replace(/\/$/, "")}/rest/v1/zivo_travel_booking_intents`);
+  endpoint.searchParams.set("select", "id,booking_reference,status,service_type,result_id,result_title,provider,currency,subtotal,service_fee,total,review_url,checkout_url,sso_url,created_at");
+  endpoint.searchParams.set("booking_reference", `eq.${reference}`);
+  endpoint.searchParams.set("limit", "1");
+
+  const response = await fetch(endpoint.toString(), {
+    headers: {
+      apikey: env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY,
+      authorization: `Bearer ${env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY}`,
+      accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    return {
+      app: "zivo-travel",
+      mode: "booking_lookup_failed",
+      persisted: false,
+      reference,
+      bookings: [],
+      supabaseStatus: response.status,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  const records = await response.json() as Array<Record<string, unknown>>;
+
+  return {
+    app: "zivo-travel",
+    mode: "supabase_booking_lookup",
+    persisted: true,
+    reference,
+    bookings: records.map(bookingRecordFromRow),
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -472,7 +538,7 @@ export default {
     }
 
     if (url.pathname === "/sitemap.xml") {
-      const pages = ["", "flights", "hotels", "cars", "bus", "deals", "booking/review"].map(
+      const pages = ["", "flights", "hotels", "cars", "bus", "deals", "trips", "booking/review"].map(
         (path) => `  <url><loc>https://zivostravel.com/${path}</loc></url>`,
       );
 
@@ -532,6 +598,10 @@ export default {
     }
 
     if (url.pathname === "/api/travel/bookings") {
+      if (request.method === "GET") {
+        return json(request, await findBookingIntent(url, env));
+      }
+
       if (request.method !== "POST") {
         return json(request, { error: "method_not_allowed" }, 405);
       }

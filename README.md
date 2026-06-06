@@ -87,3 +87,7 @@ npx wrangler secret put ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY
 
 Without that secret, the live site stays safe and returns `booking_bridge_preview` with a checkout URL that still includes
 `booking_reference`. The service-role key must stay server-side in Cloudflare only; do not add it to Vite/client env vars.
+
+The `/trips` page stores booking drafts in the customer's browser so they can resume review or checkout immediately. When
+the Cloudflare Supabase secret is configured, `GET /api/travel/bookings?reference=ztb_...` is ready to look up the matching
+persisted intent by reference.
