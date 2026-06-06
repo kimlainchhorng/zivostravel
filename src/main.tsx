@@ -51,6 +51,7 @@ type BackendStatus = {
   authoritySupabaseUrl?: string;
   dedicatedBackendEnabled?: boolean;
   bookingPersistence?: string;
+  adminQueue?: string;
   services?: string[];
   routes?: Partial<Record<SearchKind | "checkout" | "wallet" | "support", string>>;
   checkedAt?: string;
@@ -174,6 +175,25 @@ type DealsPayload = {
   currency: string;
   provider: string;
   deals: DealPackage[];
+};
+type AdminQueueRow = {
+  id: string;
+  customer: string;
+  product: string;
+  route: string;
+  status: string;
+  risk: string;
+  amount: string;
+  lastUpdate: string;
+};
+type AdminQueuePayload = {
+  app: string;
+  mode: string;
+  persisted: boolean;
+  reason?: string;
+  supabaseStatus?: number;
+  queue: AdminQueueRow[];
+  checkedAt: string;
 };
 
 const searchTabs = [
@@ -552,6 +572,14 @@ function isDealsRoute() {
   return window.location.pathname === "/deals";
 }
 
+function isOpsRoute() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.location.pathname === "/ops" || window.location.pathname === "/travel/ops";
+}
+
 function currentPath() {
   if (typeof window === "undefined") {
     return "/";
@@ -924,6 +952,43 @@ function saveBookingIntent(intent: BookingIntentResponse, traveler?: TravelerDet
   return saved;
 }
 
+function fallbackAdminQueue(): AdminQueuePayload {
+  const savedRows = readSavedTrips().map((trip) => ({
+    id: trip.bookingReference,
+    customer: trip.traveler?.name || "Guest checkout",
+    product: serviceLabel(trip.serviceType),
+    route: trip.resultTitle,
+    status: trip.status.replace(/_/g, " "),
+    risk: trip.persisted ? "Low" : "Medium",
+    amount: `${trip.currency} ${trip.total.toFixed(2)}`,
+    lastUpdate: new Date(trip.savedAt).toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    })
+  }));
+  const previewRows = fallbackDeals().deals.map((deal, index) => ({
+    id: `preview-${deal.id}`,
+    customer: "Guest checkout",
+    product: deal.services.map((kind) => serviceLabel(serviceType(kind))).join(" + "),
+    route: deal.title,
+    status: "Pending checkout",
+    risk: index === 0 ? "Medium" : "Low",
+    amount: `USD ${deal.price.toFixed(2)}`,
+    lastUpdate: "Preview"
+  }));
+
+  return {
+    app: "zivo-travel",
+    mode: "local_admin_queue",
+    persisted: false,
+    reason: "local_preview",
+    queue: savedRows.length ? savedRows : previewRows,
+    checkedAt: new Date().toISOString()
+  };
+}
+
 function serviceLabel(service: string) {
   if (service === "flight") return "Flight";
   if (service === "hotel") return "Hotel";
@@ -1033,6 +1098,7 @@ function App() {
   const reviewKind = currentReviewKind();
   const tripsRoute = isTripsRoute();
   const dealsRoute = isDealsRoute();
+  const opsRoute = isOpsRoute();
   const path = currentPath();
 
   useEffect(() => {
@@ -1140,6 +1206,14 @@ function App() {
             My trips
             {savedTripCount ? <span className="pill-count">{savedTripCount}</span> : null}
           </a>
+          <a
+            className={`pill ${path === "/ops" || path === "/travel/ops" ? "active" : ""}`}
+            href={localUrl("/ops")}
+            aria-current={path === "/ops" || path === "/travel/ops" ? "page" : undefined}
+          >
+            <ReceiptText size={16} />
+            Ops
+          </a>
           <a className="pill" href={engineUrl(bridge.routing.wallet)}>
             <WalletCards size={16} />
             Wallet
@@ -1182,6 +1256,13 @@ function App() {
                   <small>Flight, hotel, car, and bus packages</small>
                 </span>
               </a>
+              <a href={localUrl("/ops")}>
+                <BadgeCheck size={17} />
+                <span>
+                  <b>Ops queue</b>
+                  <small>{backendStatus?.adminQueue === "supabase_rpc" ? "Supabase queue ready" : "Preview queue active"}</small>
+                </span>
+              </a>
               <a href={engineUrl(bridge.routing.wallet)}>
                 <ShieldCheck size={17} />
                 <span>
@@ -1198,6 +1279,8 @@ function App() {
         <DealsPage backendStatus={backendStatus} />
       ) : tripsRoute ? (
         <TripsPage backendStatus={backendStatus} />
+      ) : opsRoute ? (
+        <OpsPage backendStatus={backendStatus} />
       ) : reviewKind ? (
         <BookingReview kind={reviewKind} backendStatus={backendStatus} />
       ) : routeKind ? (
@@ -1757,6 +1840,240 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
               Clear saved drafts
             </button>
           ) : null}
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function riskClass(risk: string) {
+  return risk.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function formatQueueTime(value: string) {
+  if (!value || value === "Preview") {
+    return value || "Preview";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function queueReasonLabel(payload: AdminQueuePayload) {
+  if (payload.reason === "missing_supabase_service_role_secret") {
+    return "Waiting for Supabase service-role secret";
+  }
+
+  if (payload.reason === "supabase_rpc_failed") {
+    return `Supabase returned ${payload.supabaseStatus || "an error"}`;
+  }
+
+  if (payload.reason === "local_preview") {
+    return "Local preview rows";
+  }
+
+  return payload.reason ? formatMode(payload.reason) : "Live queue connected";
+}
+
+function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
+  const [payload, setPayload] = useState<AdminQueuePayload>(() => fallbackAdminQueue());
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [savedTrips, setSavedTrips] = useState<SavedTrip[]>(() => readSavedTrips());
+  const activePayload = payload.queue.length ? payload : fallbackAdminQueue();
+  const queue = activePayload.queue;
+  const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
+  const queueLabel = activePayload.persisted
+    ? "Supabase queue"
+    : activePayload.reason === "missing_supabase_service_role_secret"
+      ? "Preview queue"
+      : "Local queue";
+  const pendingCount = queue.filter((row) => !/(paid|complete|confirmed)/i.test(row.status)).length;
+  const riskCount = queue.filter((row) => row.risk.toLowerCase() !== "low").length;
+
+  useEffect(() => {
+    function refreshTrips() {
+      setSavedTrips(readSavedTrips());
+    }
+
+    window.addEventListener(savedTripsEvent, refreshTrips);
+    window.addEventListener("storage", refreshTrips);
+
+    return () => {
+      window.removeEventListener(savedTripsEvent, refreshTrips);
+      window.removeEventListener("storage", refreshTrips);
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fallback = fallbackAdminQueue();
+    setPayload(fallback);
+
+    if (!canUseTravelApi()) {
+      return () => controller.abort();
+    }
+
+    setLoading(true);
+    fetch("/api/travel/admin/queue?limit=8", {
+      headers: { accept: "application/json" },
+      signal: controller.signal
+    })
+      .then((response) => {
+        if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+          throw new Error("Travel operations queue unavailable");
+        }
+
+        return response.json() as Promise<AdminQueuePayload>;
+      })
+      .then((adminPayload) => setPayload(adminPayload))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setPayload(fallback);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [refreshToken]);
+
+  return (
+    <section className="ops-page" aria-label="Travel operations">
+      <div className="ops-hero">
+        <div>
+          <a className="back-link" href={localUrl("/")}>
+            <ChevronLeft size={17} />
+            Search
+          </a>
+          <span className="results-icon">
+            <ReceiptText size={25} />
+          </span>
+          <h1>Travel ops queue</h1>
+          <p>Monitor pending travel handoffs across flights, hotels, rental cars, and buses.</p>
+        </div>
+        <div className="review-status">
+          <span>{bridgeLabel}</span>
+          <strong>{queueLabel}</strong>
+          <small>{new Date(activePayload.checkedAt).toLocaleString()}</small>
+        </div>
+      </div>
+
+      <div className="ops-layout">
+        <div className="ops-main">
+          <div className="ops-metrics" aria-label="Operations metrics">
+            <article>
+              <span>Queue</span>
+              <strong>{queue.length}</strong>
+              <small>{formatMode(activePayload.mode)}</small>
+            </article>
+            <article>
+              <span>Pending</span>
+              <strong>{pendingCount}</strong>
+              <small>Needs checkout follow-up</small>
+            </article>
+            <article>
+              <span>Risk</span>
+              <strong>{riskCount}</strong>
+              <small>Medium or high review</small>
+            </article>
+            <article>
+              <span>Drafts</span>
+              <strong>{savedTrips.length}</strong>
+              <small>Saved in this browser</small>
+            </article>
+          </div>
+
+          <article className="ops-table-card">
+            <div className="ops-table-head">
+              <div>
+                <h2>Pending handoffs</h2>
+                <p>{queueReasonLabel(activePayload)}</p>
+              </div>
+              <button type="button" onClick={() => setRefreshToken((token) => token + 1)} disabled={loading}>
+                <Repeat2 size={17} />
+                {loading ? "Refreshing" : "Refresh"}
+              </button>
+            </div>
+
+            <div className="ops-table" role="table" aria-label="Pending travel queue">
+              <div className="ops-table-row ops-table-labels" role="row">
+                <span>Customer</span>
+                <span>Product</span>
+                <span>Route</span>
+                <span>Status</span>
+                <span>Amount</span>
+                <span>Risk</span>
+                <span>Updated</span>
+              </div>
+              {queue.map((row) => (
+                <div key={row.id} className="ops-table-row" role="row">
+                  <span>
+                    <strong>{row.customer}</strong>
+                    <small>{row.id}</small>
+                  </span>
+                  <span>{row.product}</span>
+                  <span>{row.route}</span>
+                  <span>{row.status}</span>
+                  <span>{row.amount}</span>
+                  <span>
+                    <b className={`risk-pill risk-${riskClass(row.risk)}`}>{row.risk}</b>
+                  </span>
+                  <span>{formatQueueTime(row.lastUpdate)}</span>
+                </div>
+              ))}
+            </div>
+          </article>
+        </div>
+
+        <aside className="ops-aside">
+          <h2>Backend workflow</h2>
+          <p>Search, deal, and booking drafts start on Zivo Travel, then checkout, wallet, payout, and support stay connected through Zivos Media.</p>
+          <div className="ops-chain">
+            <span>
+              <Search size={16} />
+              Travel search
+            </span>
+            <span>
+              <ReceiptText size={16} />
+              Queue review
+            </span>
+            <span>
+              <CreditCard size={16} />
+              Checkout
+            </span>
+            <span>
+              <WalletCards size={16} />
+              Wallet
+            </span>
+          </div>
+          <div className="ops-links">
+            <a href={localUrl("/trips")}>
+              Saved trips
+              <ArrowRight size={16} />
+            </a>
+            <a href={localUrl("/deals")}>
+              Bundle deals
+              <ArrowRight size={16} />
+            </a>
+            <a href={engineUrl(bridge.routing.wallet)}>
+              Zivos Media wallet
+              <ArrowRight size={16} />
+            </a>
+          </div>
         </aside>
       </div>
     </section>

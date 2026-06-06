@@ -2234,6 +2234,276 @@ button {
   font-weight: 900;
 }
 
+.ops-page {
+  max-width: 1760px;
+  margin: 0 auto;
+}
+
+.ops-hero {
+  display: grid;
+  min-height: 310px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.28fr);
+  gap: 26px;
+  align-items: end;
+  padding: 36px 42px;
+  border: 1px solid rgba(35, 88, 145, 0.12);
+  border-radius: 42px;
+  background:
+    radial-gradient(circle at 84% 18%, rgba(7, 90, 242, 0.14), transparent 30%),
+    radial-gradient(circle at 55% 110%, rgba(63, 213, 187, 0.16), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.93), rgba(225, 242, 255, 0.78));
+  box-shadow:
+    0 26px 80px rgba(44, 102, 160, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.ops-hero h1 {
+  max-width: 900px;
+  margin: 16px 0 10px;
+  color: #07162c;
+  font-size: clamp(54px, 6vw, 98px);
+  line-height: 0.92;
+}
+
+.ops-hero p {
+  max-width: 740px;
+  margin: 0;
+  color: #536b86;
+  font-size: 20px;
+}
+
+.ops-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.32fr);
+  gap: 22px;
+  align-items: start;
+  margin-top: 24px;
+}
+
+.ops-main {
+  display: grid;
+  gap: 18px;
+}
+
+.ops-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.ops-metrics article,
+.ops-table-card,
+.ops-aside {
+  border: 1px solid rgba(35, 88, 145, 0.12);
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    0 22px 60px rgba(44, 102, 160, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24px);
+}
+
+.ops-metrics article {
+  display: grid;
+  gap: 5px;
+  min-height: 126px;
+  align-content: center;
+  padding: 18px;
+}
+
+.ops-metrics span,
+.ops-metrics small {
+  color: #61748a;
+  font-weight: 850;
+}
+
+.ops-metrics strong {
+  color: #07162c;
+  font-size: 42px;
+  line-height: 1;
+}
+
+.ops-table-card {
+  overflow: hidden;
+}
+
+.ops-table-head,
+.ops-table-row,
+.ops-chain span,
+.ops-links a {
+  display: flex;
+  align-items: center;
+}
+
+.ops-table-head {
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px;
+  border-bottom: 1px solid rgba(35, 88, 145, 0.1);
+}
+
+.ops-table-head h2 {
+  margin: 0;
+  color: #07162c;
+  font-size: 28px;
+}
+
+.ops-table-head p {
+  margin: 6px 0 0;
+  color: #61748a;
+  line-height: 1.45;
+}
+
+.ops-table-head button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid rgba(7, 90, 242, 0.16);
+  border-radius: 14px;
+  color: #075af2;
+  background: #ffffff;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.ops-table-head button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.ops-table {
+  display: grid;
+  min-width: 900px;
+}
+
+.ops-table-card {
+  overflow-x: auto;
+}
+
+.ops-table-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.1fr) minmax(118px, 0.74fr) minmax(190px, 1.2fr) minmax(126px, 0.75fr) minmax(105px, 0.62fr) minmax(84px, 0.48fr) minmax(120px, 0.7fr);
+  gap: 12px;
+  padding: 15px 22px;
+  border-bottom: 1px solid rgba(35, 88, 145, 0.08);
+  color: #183452;
+}
+
+.ops-table-row:last-child {
+  border-bottom: 0;
+}
+
+.ops-table-labels {
+  color: #61748a;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(238, 247, 255, 0.68);
+}
+
+.ops-table-row strong,
+.ops-table-row small {
+  display: block;
+}
+
+.ops-table-row strong {
+  color: #07162c;
+  font-size: 15px;
+}
+
+.ops-table-row small {
+  overflow: hidden;
+  margin-top: 4px;
+  color: #61748a;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-pill {
+  display: inline-grid;
+  min-width: 68px;
+  min-height: 30px;
+  place-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.risk-low {
+  color: #036453;
+  background: rgba(63, 213, 187, 0.18);
+}
+
+.risk-medium {
+  color: #8a5100;
+  background: rgba(255, 183, 77, 0.22);
+}
+
+.risk-high {
+  color: #9d1731;
+  background: rgba(255, 49, 88, 0.16);
+}
+
+.ops-aside {
+  position: sticky;
+  top: 18px;
+  padding: 22px;
+}
+
+.ops-aside h2 {
+  margin: 0;
+  color: #07162c;
+  font-size: 27px;
+}
+
+.ops-aside p {
+  margin: 10px 0 18px;
+  color: #61748a;
+  line-height: 1.5;
+}
+
+.ops-chain,
+.ops-links {
+  display: grid;
+  gap: 10px;
+}
+
+.ops-chain {
+  margin-bottom: 18px;
+}
+
+.ops-chain span {
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(35, 88, 145, 0.1);
+  border-radius: 14px;
+  color: #183452;
+  background: #ffffff;
+  font-weight: 850;
+}
+
+.ops-chain svg {
+  color: #075af2;
+}
+
+.ops-links a {
+  min-height: 44px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  border-radius: 14px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #126bff, #064ce8);
+  font-weight: 900;
+}
+
 .workflow-band {
   display: grid;
   grid-template-columns: minmax(330px, 0.82fr) minmax(520px, 1.2fr) minmax(360px, 0.88fr);
@@ -2513,6 +2783,7 @@ button {
   .results-layout,
   .review-layout,
   .trips-layout,
+  .ops-layout,
   .deals-grid,
   .workflow-band,
   .trust-strip {
@@ -2521,7 +2792,8 @@ button {
 
   .results-aside,
   .review-checkout,
-  .trips-aside {
+  .trips-aside,
+  .ops-aside {
     position: static;
   }
 
@@ -2878,6 +3150,10 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .ops-hero {
+    grid-template-columns: 1fr;
+  }
+
   .deals-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2901,6 +3177,10 @@ button {
   .trip-row-price {
     grid-column: 1 / -1;
     justify-items: stretch;
+  }
+
+  .ops-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2990,6 +3270,13 @@ button {
     border-radius: 28px;
   }
 
+  .ops-hero {
+    display: block;
+    min-height: auto;
+    padding: 24px 18px;
+    border-radius: 28px;
+  }
+
   .deals-hero {
     display: block;
     min-height: auto;
@@ -3000,6 +3287,7 @@ button {
   .results-hero h1,
   .review-hero h1,
   .trips-hero h1,
+  .ops-hero h1,
   .deals-hero h1 {
     font-size: 38px;
   }
@@ -3007,6 +3295,7 @@ button {
   .results-hero p,
   .review-hero p,
   .trips-hero p,
+  .ops-hero p,
   .deals-hero p {
     font-size: 16px;
   }
@@ -3119,6 +3408,34 @@ button {
 
   .trip-row-price div {
     flex-direction: column;
+  }
+
+  .ops-metrics {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .ops-metrics article {
+    min-height: 106px;
+    padding: 14px;
+  }
+
+  .ops-metrics strong {
+    font-size: 34px;
+  }
+
+  .ops-table-head {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 18px;
+  }
+
+  .ops-table-head button {
+    width: 100%;
+  }
+
+  .ops-table-row {
+    padding: 14px 18px;
   }
 
   .trip-type {
