@@ -2527,6 +2527,24 @@ function FeatureHero() {
       <span className="plane-3d" aria-hidden="true">
         <span />
       </span>
+      <span className="feature-benefits" aria-hidden="true">
+        <span>
+          <ShieldCheck size={17} />
+          Trusted by millions
+        </span>
+        <span>
+          <ShieldCheck size={17} />
+          Flexible changes
+        </span>
+        <span>
+          <ShieldCheck size={17} />
+          Earn rewards
+        </span>
+        <span>
+          <ShieldCheck size={17} />
+          No hidden fees
+        </span>
+      </span>
     </a>
   );
 }
