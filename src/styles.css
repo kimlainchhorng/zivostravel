@@ -4485,6 +4485,12 @@ button {
   }
 }
 
+@media (max-width: 999px) {
+  .plane-3d {
+    display: none;
+  }
+}
+
 @media (max-width: 720px) {
   .travel-page {
     padding: 16px 14px 26px;
@@ -5090,5 +5096,109 @@ button {
 
   .connection-grid {
     padding: 18px 18px 0;
+  }
+
+  .search-panel {
+    padding: 20px 14px 14px;
+  }
+
+  .search-panel h1 {
+    font-size: 27px;
+  }
+
+  .search-panel > p {
+    margin-bottom: 14px;
+  }
+
+  .trip-type {
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .quantity-stepper {
+    display: grid;
+    min-height: 46px;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    padding: 8px 10px;
+  }
+
+  .quantity-stepper > div:last-child {
+    gap: 14px;
+  }
+
+  .flight-fields {
+    grid-template-columns: 1fr 38px 1fr;
+    min-height: 0;
+  }
+
+  .flight-fields .field {
+    min-height: 58px;
+    padding: 9px 12px;
+  }
+
+  .flight-fields .field:nth-child(1),
+  .flight-fields .field:nth-child(3) {
+    grid-row: 1;
+  }
+
+  .flight-fields .field:nth-child(4),
+  .flight-fields .field:nth-child(5) {
+    grid-row: 2;
+  }
+
+  .flight-fields .field:nth-child(1),
+  .flight-fields .field:nth-child(4) {
+    grid-column: 1 !important;
+  }
+
+  .flight-fields .field:nth-child(3),
+  .flight-fields .field:nth-child(5) {
+    grid-column: 3 !important;
+  }
+
+  .flight-fields .swap-btn {
+    grid-column: 2 !important;
+    grid-row: 1 / span 2 !important;
+    margin: 0 -3px;
+  }
+
+  .field strong,
+  .field input,
+  .field input[type="date"] {
+    font-size: 14px;
+  }
+
+  .field small {
+    font-size: 11px;
+  }
+
+  .search-perks {
+    grid-template-columns: 1fr;
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .search-perks span {
+    min-height: 30px;
+    font-size: 12px;
+  }
+
+  .mini-proof {
+    display: none;
+  }
+
+  .search-footer {
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .reset-search {
+    min-height: 36px;
+    margin-bottom: 0;
+  }
+
+  .primary-search {
+    min-height: 46px;
   }
 }
