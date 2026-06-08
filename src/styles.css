@@ -12,6 +12,11 @@
   box-sizing: border-box;
 }
 
+*:focus-visible {
+  outline: 2px solid #075af2;
+  outline-offset: 2px;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -765,7 +770,6 @@ button {
   font-size: 18px;
   font-weight: 900;
   line-height: 1.2;
-  outline: none;
 }
 
 .field input[type="date"] {
@@ -1263,7 +1267,7 @@ button {
   object-fit: cover;
 }
 
-.route-card button {
+.route-card-arrow {
   position: absolute;
   right: 18px;
   top: 98px;
@@ -1271,10 +1275,10 @@ button {
   width: 46px;
   height: 46px;
   place-items: center;
-  border: 0;
   border-radius: 50%;
   background: #ffffff;
   box-shadow: 0 12px 28px rgba(44, 102, 160, 0.18);
+  pointer-events: none;
 }
 
 .route-card div {
@@ -2053,10 +2057,10 @@ button {
   font: inherit;
   font-size: 15px;
   font-weight: 750;
-  outline: 0;
 }
 
-.traveler-grid input:focus {
+.traveler-grid input:focus-visible {
+  outline: none;
   border-color: rgba(7, 90, 242, 0.42);
   box-shadow: 0 0 0 4px rgba(7, 90, 242, 0.08);
 }
@@ -3464,7 +3468,6 @@ button {
   background: #ffffff;
   font: inherit;
   font-size: 15px;
-  outline: none;
   padding: 11px 13px;
 }
 
@@ -3472,8 +3475,9 @@ button {
   resize: vertical;
 }
 
-.support-form input:focus,
-.support-form textarea:focus {
+.support-form input:focus-visible,
+.support-form textarea:focus-visible {
+  outline: none;
   border-color: rgba(7, 90, 242, 0.45);
   box-shadow: 0 0 0 4px rgba(7, 90, 242, 0.08);
 }

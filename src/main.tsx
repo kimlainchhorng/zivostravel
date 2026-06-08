@@ -2713,9 +2713,9 @@ function PopularRoutes() {
             href={localUrl(`/flights?from=${encodeURIComponent(route.from)}&to=${encodeURIComponent(route.to)}&start=2026-06-15&end=2026-06-18&travelers=1`)}
           >
             <img src={route.image} alt={`${route.from} to ${route.to}`} />
-            <button aria-label={`Open ${route.from} route`}>
+            <span aria-hidden="true" className="route-card-arrow">
               <ArrowRight size={18} />
-            </button>
+            </span>
             <div>
               <strong>{route.from}</strong>
               <span>{route.to}</span>
