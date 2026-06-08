@@ -2698,7 +2698,7 @@ function FeatureHero() {
         src={heroCardImage}
         alt="Zivo Travel booking hero with temple, airplane, and balloons"
         decoding="async"
-        fetchPriority="high"
+        loading="eager"
       />
       <span className="feature-depth-card" aria-hidden="true" />
       <span className="cloud one" aria-hidden="true" />
@@ -4845,7 +4845,16 @@ function SectionHeader({
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+// Reuse the root across Vite HMR re-executions of this entry module so we never
+// call createRoot() twice on the same #root (which warns and re-mounts the app).
+const rootContainer = document.getElementById("root")!;
+const globalForRoot = window as unknown as {
+  __zivoTravelRoot?: ReturnType<typeof ReactDOM.createRoot>;
+};
+const root =
+  globalForRoot.__zivoTravelRoot ??
+  (globalForRoot.__zivoTravelRoot = ReactDOM.createRoot(rootContainer));
+root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
