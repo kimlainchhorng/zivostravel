@@ -44,6 +44,11 @@ import "./styles.css";
 const engineOrigin =
   import.meta.env.VITE_ZIVO_PLATFORM_ORIGIN || bridge.platformOrigin || "https://zivosmedia.com";
 
+// Canonical ZivoChat domain for the one-click support/chat entry. Overridable via
+// env; defaults to the live chat host (zivoschat.com, not zivochat.com).
+const chatOrigin =
+  import.meta.env.VITE_ZIVO_CHAT_ORIGIN || "https://zivoschat.com";
+
 type SearchKind = "flights" | "hotels" | "cars" | "bus";
 type CurrencyCode = "USD" | "KHR" | "THB";
 type TripType = "Round trip" | "One way" | "Multi-city";
@@ -2052,6 +2057,20 @@ function App() {
         </nav>
 
         <div className="utility-nav">
+          <a className="pill" href={engineOrigin} aria-label="Continue with Zivosmedia">
+            <Link2 size={16} />
+            Continue with Zivosmedia
+          </a>
+          <a
+            className="pill"
+            href={chatOrigin}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Get support on ZivoChat"
+          >
+            <Headphones size={16} />
+            ZivoChat
+          </a>
           <div className="currency-menu">
             <button
               className={`pill ${currencyOpen ? "active" : ""}`}
