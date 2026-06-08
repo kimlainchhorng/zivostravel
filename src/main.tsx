@@ -4394,7 +4394,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
           <div className="review-actions">
             <a href={activeSession.ssoUrl}>
               <LockKeyhole size={16} />
-              SSO handoff
+              Continue with Zivosmedia
             </a>
             <a href={activeSession.paymentUrl}>
               <CreditCard size={16} />

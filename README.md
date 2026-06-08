@@ -106,3 +106,10 @@ search telemetry, while customer reads stay owner-scoped.
 `public.zivo_travel_support_tickets` before the Zivos Media chat handoff. Public customers can insert constrained ticket
 drafts through the Cloudflare bridge; reads stay owner-scoped for authenticated customers and service-role only for future
 admin queues.
+
+## Continue with Zivosmedia
+
+The first Travel-side identity bridge is documented in [`docs/zivosmedia-auth-bridge.md`](./docs/zivosmedia-auth-bridge.md).
+It adds server-only account linking endpoints and Supabase tables for `linked_zivosmedia_users`, `auth_audit_logs`, and
+`platform_webhook_events`. The Worker validates ZivosMedia authorization codes and PKCE verifiers server-side; it does not trust browser
+claims, expose service-role keys, or create production auth settings.

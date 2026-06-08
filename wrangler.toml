@@ -22,3 +22,4 @@ run_worker_first = true
 ZIVO_PLATFORM_ORIGIN = "https://zivosmedia.com"
 ZIVO_TRAVEL_SUPABASE_URL = "https://xbllvmpomorawkcrtbcq.supabase.co"
 ZIVO_AUTHORITY_SUPABASE_URL = "https://slirphzzwcogdbkeicff.supabase.co"
+ZIVOSMEDIA_AUTH_APP_KEY = "zivo_travel"

@@ -1,3 +1,7 @@
+type Fetcher = {
+  fetch(request: Request): Promise<Response>;
+};
+
 export interface Env {
   ASSETS: Fetcher;
   ZIVO_PLATFORM_ORIGIN: string;
@@ -5,6 +9,11 @@ export interface Env {
   ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY?: string;
   ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY?: string;
   ZIVO_AUTHORITY_SUPABASE_URL?: string;
+  ZIVOSMEDIA_AUTH_APP_KEY?: string;
+  ZIVOSMEDIA_AUTH_VALIDATE_URL?: string;
+  ZIVOSMEDIA_AUTH_CLIENT_SECRET?: string;
+  ZIVOSMEDIA_WEBHOOK_SECRET?: string;
+  ZIVO_TRAVEL_ADMIN_API_TOKEN?: string;
 }
 
 const securityHeaders = {
@@ -75,6 +84,20 @@ type SupportTicketRow = Record<string, unknown> & {
   request_payload: Record<string, unknown>;
   metadata: Record<string, unknown>;
   created_at?: string;
+};
+type ZivosmediaProfile = {
+  zivosmedia_user_id: string;
+  email: string | null;
+  phone: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+type ZivosmediaValidateResponse = {
+  token_type?: string;
+  profile?: ZivosmediaProfile;
+  scopes?: string[];
+  linked_at?: string;
+  error?: string;
 };
 type ResultTemplate = {
   id: string;
@@ -355,6 +378,15 @@ function apiHeaders(request: Request) {
   }
 
   return headers;
+}
+
+function isCorsPath(pathname: string) {
+  return (
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/webhooks/") ||
+    pathname.startsWith("/admin/")
+  );
 }
 
 function json(request: Request, payload: unknown, status = 200) {
@@ -1124,11 +1156,466 @@ function supportPersistenceMode(env: Env) {
   return "preview";
 }
 
+function zivosmediaAuthAppKey(env: Env) {
+  return readEnvSecret(env.ZIVOSMEDIA_AUTH_APP_KEY) || "zivo_travel";
+}
+
+function zivosmediaValidateUrl(env: Env) {
+  const configured = readEnvSecret(env.ZIVOSMEDIA_AUTH_VALIDATE_URL);
+  if (configured) {
+    return configured;
+  }
+
+  const authority = readEnvSecret(env.ZIVO_AUTHORITY_SUPABASE_URL).replace(/\/$/, "");
+  return authority ? `${authority}/functions/v1/zivosmedia-auth-validate-code` : "";
+}
+
+function adminApiToken(env: Env) {
+  return readEnvSecret(env.ZIVO_TRAVEL_ADMIN_API_TOKEN);
+}
+
+function webhookSecret(env: Env) {
+  return readEnvSecret(env.ZIVOSMEDIA_WEBHOOK_SECRET);
+}
+
+function requestIp(request: Request) {
+  return request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || null;
+}
+
+function requestUserAgent(request: Request) {
+  return request.headers.get("user-agent") || null;
+}
+
+async function supabaseInsert(env: Env, table: string, rows: unknown, options: { select?: string; prefer?: string; onConflict?: string } = {}) {
+  const supabaseUrl = travelSupabaseUrl(env);
+  const privateKey = privilegedSupabaseKey(env);
+  if (!supabaseUrl || !privateKey) {
+    return { ok: false, status: 503, data: null, error: "missing_supabase_service_role_secret" };
+  }
+
+  const endpoint = new URL(`${supabaseUrl}/rest/v1/${table}`);
+  if (options.select) {
+    endpoint.searchParams.set("select", options.select);
+  }
+  if (options.onConflict) {
+    endpoint.searchParams.set("on_conflict", options.onConflict);
+  }
+
+  const response = await fetch(endpoint.toString(), {
+    method: "POST",
+    headers: supabaseApiHeaders(privateKey, {
+      "content-type": "application/json",
+      prefer: options.prefer || (options.select ? "return=representation" : "return=minimal"),
+    }),
+    body: JSON.stringify(rows),
+  });
+
+  const data = options.select && response.ok ? await response.json().catch(() => null) : null;
+  return { ok: response.ok, status: response.status, data, error: response.ok ? null : await response.text().catch(() => "") };
+}
+
+async function supabasePatch(env: Env, table: string, filters: Record<string, string>, body: Record<string, unknown>) {
+  const supabaseUrl = travelSupabaseUrl(env);
+  const privateKey = privilegedSupabaseKey(env);
+  if (!supabaseUrl || !privateKey) {
+    return { ok: false, status: 503, data: null, error: "missing_supabase_service_role_secret" };
+  }
+
+  const endpoint = new URL(`${supabaseUrl}/rest/v1/${table}`);
+  for (const [key, value] of Object.entries(filters)) {
+    endpoint.searchParams.set(key, value);
+  }
+
+  const response = await fetch(endpoint.toString(), {
+    method: "PATCH",
+    headers: supabaseApiHeaders(privateKey, {
+      "content-type": "application/json",
+      prefer: "return=minimal",
+    }),
+    body: JSON.stringify(body),
+  });
+
+  return { ok: response.ok, status: response.status, data: null, error: response.ok ? null : await response.text().catch(() => "") };
+}
+
+async function supabaseSelect(env: Env, table: string, filters: Record<string, string>, select: string) {
+  const supabaseUrl = travelSupabaseUrl(env);
+  const privateKey = privilegedSupabaseKey(env);
+  if (!supabaseUrl || !privateKey) {
+    return { ok: false, status: 503, data: null, error: "missing_supabase_service_role_secret" };
+  }
+
+  const endpoint = new URL(`${supabaseUrl}/rest/v1/${table}`);
+  endpoint.searchParams.set("select", select);
+  for (const [key, value] of Object.entries(filters)) {
+    endpoint.searchParams.set(key, value);
+  }
+  endpoint.searchParams.set("limit", "1");
+
+  const response = await fetch(endpoint.toString(), {
+    headers: supabaseApiHeaders(privateKey, { accept: "application/json" }),
+  });
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data: response.ok ? await response.json().catch(() => null) : null,
+    error: response.ok ? null : await response.text().catch(() => ""),
+  };
+}
+
+async function auditAuthEvent(
+  request: Request,
+  env: Env,
+  input: {
+    eventType: string;
+    success: boolean;
+    zivosmediaUserId?: string | null;
+    localUserId?: string | null;
+    errorMessage?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+) {
+  await supabaseInsert(env, "auth_audit_logs", {
+    event_type: input.eventType,
+    success: input.success,
+    zivosmedia_user_id: input.zivosmediaUserId || null,
+    local_user_id: input.localUserId || null,
+    ip_address: requestIp(request),
+    user_agent: requestUserAgent(request),
+    error_message: input.errorMessage || null,
+    metadata: input.metadata || {},
+  });
+}
+
+function isValidUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function cleanProfile(profile: unknown): ZivosmediaProfile | null {
+  if (!profile || typeof profile !== "object") {
+    return null;
+  }
+
+  const input = profile as Record<string, unknown>;
+  if (!isValidUuid(input.zivosmedia_user_id)) {
+    return null;
+  }
+
+  return {
+    zivosmedia_user_id: input.zivosmedia_user_id,
+    email: cleanNullableText(input.email, 180),
+    phone: cleanNullableText(input.phone, 40),
+    display_name: cleanNullableText(input.display_name, 120),
+    avatar_url: cleanNullableText(input.avatar_url, 500),
+  };
+}
+
+function isValidCodeVerifier(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9._~-]{43,128}$/.test(value);
+}
+
+async function validateZivosmediaCode(code: string, codeVerifier: string, env: Env): Promise<ZivosmediaValidateResponse> {
+  const validateUrl = zivosmediaValidateUrl(env);
+  const clientSecret = readEnvSecret(env.ZIVOSMEDIA_AUTH_CLIENT_SECRET);
+
+  if (!validateUrl || !clientSecret) {
+    return { error: "missing_zivosmedia_auth_configuration" };
+  }
+
+  const response = await fetch(validateUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({
+      app_key: zivosmediaAuthAppKey(env),
+      client_secret: clientSecret,
+      code,
+      code_verifier: codeVerifier,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({})) as ZivosmediaValidateResponse;
+  return response.ok ? payload : { error: payload.error || `zivosmedia_validate_failed_${response.status}` };
+}
+
+async function upsertLinkedZivosmediaUser(env: Env, profile: ZivosmediaProfile, metadata: Record<string, unknown>) {
+  return supabaseInsert(
+    env,
+    "linked_zivosmedia_users",
+    {
+      zivosmedia_user_id: profile.zivosmedia_user_id,
+      email: profile.email,
+      phone: profile.phone,
+      display_name: profile.display_name,
+      avatar_url: profile.avatar_url,
+      status: "active",
+      last_login_at: new Date().toISOString(),
+      metadata,
+    },
+    {
+      select: "id,local_user_id,zivosmedia_user_id,email,phone,display_name,avatar_url,linked_at,last_login_at,status",
+      prefer: "resolution=merge-duplicates,return=representation",
+      onConflict: "zivosmedia_user_id",
+    },
+  );
+}
+
+async function exchangeZivosmediaAuth(request: Request, env: Env) {
+  if (request.method !== "POST") {
+    return json(request, { error: "method_not_allowed" }, 405);
+  }
+
+  const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+  const code = typeof body.code === "string" ? body.code.trim() : "";
+  const codeVerifier = typeof body.code_verifier === "string" ? body.code_verifier.trim() : "";
+  if (!code || code.length > 512) {
+    await auditAuthEvent(request, env, {
+      eventType: "zivosmedia_exchange_rejected",
+      success: false,
+      errorMessage: "invalid_code",
+    });
+    return json(request, { error: "invalid_code" }, 400);
+  }
+  if (!isValidCodeVerifier(codeVerifier)) {
+    await auditAuthEvent(request, env, {
+      eventType: "zivosmedia_exchange_rejected",
+      success: false,
+      errorMessage: "invalid_code_verifier",
+    });
+    return json(request, { error: "invalid_code_verifier" }, 400);
+  }
+
+  const validated = await validateZivosmediaCode(code, codeVerifier, env);
+  const profile = cleanProfile(validated.profile);
+  if (validated.error || !profile) {
+    await auditAuthEvent(request, env, {
+      eventType: "zivosmedia_exchange_failed",
+      success: false,
+      errorMessage: validated.error || "invalid_zivosmedia_profile",
+    });
+    return json(request, { error: validated.error || "invalid_zivosmedia_profile" }, validated.error === "missing_zivosmedia_auth_configuration" ? 503 : 401);
+  }
+
+  const linked = await upsertLinkedZivosmediaUser(env, profile, {
+    authority: "zivosmedia",
+    app: "zivo-travel",
+    scopes: validated.scopes || [],
+    source: "auth_exchange",
+  });
+
+  if (!linked.ok) {
+    await auditAuthEvent(request, env, {
+      eventType: "zivosmedia_exchange_failed",
+      success: false,
+      zivosmediaUserId: profile.zivosmedia_user_id,
+      errorMessage: "local_link_failed",
+      metadata: { supabaseStatus: linked.status },
+    });
+    return json(request, { error: "local_link_failed" }, linked.status === 503 ? 503 : 502);
+  }
+
+  const link = Array.isArray(linked.data) ? linked.data[0] : linked.data;
+  await auditAuthEvent(request, env, {
+    eventType: "zivosmedia_exchange_completed",
+    success: true,
+    zivosmediaUserId: profile.zivosmedia_user_id,
+    localUserId: link?.local_user_id || null,
+    metadata: { linkId: link?.id || null },
+  });
+
+  return json(request, {
+    app: "zivo-travel",
+    mode: "zivosmedia_identity_linked",
+    session: {
+      status: link?.local_user_id ? "local_user_linked" : "local_profile_pending",
+      reason: link?.local_user_id ? undefined : "local Supabase Auth session creation is intentionally deferred until Travel local auth is enabled.",
+    },
+    profile: {
+      local_user_id: link?.local_user_id || null,
+      zivosmedia_user_id: profile.zivosmedia_user_id,
+      email: profile.email,
+      phone: profile.phone,
+      display_name: profile.display_name,
+      avatar_url: profile.avatar_url,
+      linked_at: link?.linked_at || null,
+      last_login_at: link?.last_login_at || null,
+      status: link?.status || "active",
+    },
+    checkedAt: new Date().toISOString(),
+  });
+}
+
+async function verifyWebhookSignature(request: Request, env: Env, rawBody: string) {
+  const secret = webhookSecret(env);
+  if (!secret) {
+    return { ok: false, status: 503, error: "missing_webhook_secret" };
+  }
+
+  const signature = request.headers.get("x-zivo-signature") || "";
+  const expected = await hmacSha256Hex(secret, rawBody);
+  const normalized = signature.replace(/^sha256=/, "");
+  return timingSafeEqual(normalized, expected)
+    ? { ok: true, status: 200, error: null }
+    : { ok: false, status: 401, error: "invalid_webhook_signature" };
+}
+
+async function hmacSha256Hex(secret: string, message: string) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function timingSafeEqual(a: string, b: string) {
+  if (!a || !b || a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+async function handleZivosmediaWebhook(request: Request, env: Env, eventType: "user_updated" | "user_disabled") {
+  if (request.method !== "POST") {
+    return json(request, { error: "method_not_allowed" }, 405);
+  }
+
+  const rawBody = await request.text();
+  const signature = await verifyWebhookSignature(request, env, rawBody);
+  if (!signature.ok) {
+    await auditAuthEvent(request, env, {
+      eventType: `zivosmedia_webhook_${eventType}_rejected`,
+      success: false,
+      errorMessage: signature.error,
+    });
+    return json(request, { error: signature.error }, signature.status);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(rawBody || "{}") as Record<string, unknown>;
+  } catch {
+    await auditAuthEvent(request, env, {
+      eventType: `zivosmedia_webhook_${eventType}_rejected`,
+      success: false,
+      errorMessage: "invalid_json",
+    });
+    return json(request, { error: "invalid_json" }, 400);
+  }
+  const profile = cleanProfile(body.profile || body);
+  if (!profile) {
+    await auditAuthEvent(request, env, {
+      eventType: `zivosmedia_webhook_${eventType}_rejected`,
+      success: false,
+      errorMessage: "invalid_profile",
+    });
+    return json(request, { error: "invalid_profile" }, 400);
+  }
+
+  await supabaseInsert(env, "platform_webhook_events", {
+    source_app: "zivosmedia",
+    target_app: "zivo-travel",
+    event_type: eventType,
+    payload: body,
+    status: "received",
+  });
+
+  const update = eventType === "user_disabled"
+    ? { status: "disabled", metadata: { authority: "zivosmedia", lastWebhook: eventType } }
+    : {
+        email: profile.email,
+        phone: profile.phone,
+        display_name: profile.display_name,
+        avatar_url: profile.avatar_url,
+        metadata: { authority: "zivosmedia", lastWebhook: eventType },
+      };
+
+  const patched = await supabasePatch(env, "linked_zivosmedia_users", { zivosmedia_user_id: `eq.${profile.zivosmedia_user_id}` }, update);
+  await auditAuthEvent(request, env, {
+    eventType: `zivosmedia_webhook_${eventType}`,
+    success: patched.ok,
+    zivosmediaUserId: profile.zivosmedia_user_id,
+    errorMessage: patched.ok ? null : "local_profile_update_failed",
+    metadata: { supabaseStatus: patched.status },
+  });
+
+  return json(request, {
+    app: "zivo-travel",
+    eventType,
+    accepted: patched.ok,
+    status: patched.ok ? "processed" : "failed",
+    checkedAt: new Date().toISOString(),
+  }, patched.ok ? 200 : 502);
+}
+
+async function handleAdminUserLookup(request: Request, env: Env, zivosmediaUserId: string) {
+  if (request.method !== "GET") {
+    return json(request, { error: "method_not_allowed" }, 405);
+  }
+
+  const token = adminApiToken(env);
+  if (!token) {
+    return json(request, { error: "missing_admin_api_token" }, 503);
+  }
+
+  const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || request.headers.get("x-zivo-admin-token") || "";
+  if (!timingSafeEqual(provided, token)) {
+    await auditAuthEvent(request, env, {
+      eventType: "admin_user_lookup_rejected",
+      success: false,
+      zivosmediaUserId,
+      errorMessage: "invalid_admin_token",
+    });
+    return json(request, { error: "unauthorized" }, 401);
+  }
+
+  if (!isValidUuid(zivosmediaUserId)) {
+    return json(request, { error: "invalid_zivosmedia_user_id" }, 400);
+  }
+
+  const selected = await supabaseSelect(
+    env,
+    "linked_zivosmedia_users",
+    { zivosmedia_user_id: `eq.${zivosmediaUserId}` },
+    "id,local_user_id,zivosmedia_user_id,email,phone,display_name,avatar_url,linked_at,last_login_at,status,created_at,updated_at",
+  );
+  await auditAuthEvent(request, env, {
+    eventType: "admin_user_lookup",
+    success: selected.ok,
+    zivosmediaUserId,
+    errorMessage: selected.ok ? null : "lookup_failed",
+    metadata: { supabaseStatus: selected.status },
+  });
+
+  if (!selected.ok) {
+    return json(request, { error: "lookup_failed" }, selected.status === 503 ? 503 : 502);
+  }
+
+  const rows = Array.isArray(selected.data) ? selected.data : [];
+  return json(request, {
+    app: "zivo-travel",
+    zivosmedia_user_id: zivosmediaUserId,
+    profile: rows[0] || null,
+    found: rows.length > 0,
+    checkedAt: new Date().toISOString(),
+  }, rows.length > 0 ? 200 : 404);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
+    if (request.method === "OPTIONS" && isCorsPath(url.pathname)) {
       return new Response(null, {
         status: 204,
         headers: apiHeaders(request),
@@ -1155,7 +1642,7 @@ export default {
       );
     }
 
-    if (url.pathname === "/api/health" || url.pathname === "/api/travel/status") {
+    if (url.pathname === "/health" || url.pathname === "/api/health" || url.pathname === "/api/travel/status") {
       const hasPrivateSupabaseKey = Boolean(privilegedSupabaseKey(env));
       const hasWriteSupabaseKey = Boolean(writeSupabaseKey(env));
 
@@ -1171,10 +1658,28 @@ export default {
         supportPersistence: supportPersistenceMode(env),
         adminQueue: hasPrivateSupabaseKey ? "supabase_rpc" : "preview",
         walletSummary: hasPrivateSupabaseKey ? "bridge_ready" : "preview",
+        zivosmediaAuthExchange: zivosmediaValidateUrl(env) && env.ZIVOSMEDIA_AUTH_CLIENT_SECRET ? "configured" : "configuration_pending",
         services: travelServices,
         routes: routePaths,
         checkedAt: new Date().toISOString(),
       });
+    }
+
+    if (url.pathname === "/auth/zivosmedia/exchange") {
+      return exchangeZivosmediaAuth(request, env);
+    }
+
+    if (url.pathname === "/webhooks/zivosmedia/user-updated") {
+      return handleZivosmediaWebhook(request, env, "user_updated");
+    }
+
+    if (url.pathname === "/webhooks/zivosmedia/user-disabled") {
+      return handleZivosmediaWebhook(request, env, "user_disabled");
+    }
+
+    if (url.pathname.startsWith("/admin/users/")) {
+      const zivosmediaUserId = decodeURIComponent(url.pathname.replace("/admin/users/", ""));
+      return handleAdminUserLookup(request, env, zivosmediaUserId);
     }
 
     if (url.pathname === "/api/travel/bridge") {
