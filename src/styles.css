@@ -438,6 +438,104 @@ button {
   white-space: nowrap;
 }
 
+.app-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.app-panel {
+  position: absolute;
+  z-index: 24;
+  top: calc(100% + 12px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid rgba(35, 88, 145, 0.12);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow:
+    0 24px 64px rgba(31, 87, 145, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(24px);
+}
+
+.app-panel-header {
+  padding: 6px 10px 10px;
+  border-bottom: 1px solid rgba(35, 88, 145, 0.08);
+  margin-bottom: 4px;
+}
+
+.app-panel-header strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 900;
+  color: #183452;
+}
+
+.app-panel-header small {
+  color: #61748a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.app-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 14px;
+  color: #183452;
+  text-decoration: none;
+  transition: background 0.12s;
+}
+
+.app-row:hover {
+  background: #eef7ff;
+}
+
+.app-row.current {
+  background: rgba(7, 90, 242, 0.07);
+  color: #075af2;
+}
+
+.app-row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-row-body span {
+  display: block;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.app-row-body small {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #61748a;
+}
+
+.app-row.current .app-row-body small {
+  color: rgba(7, 90, 242, 0.65);
+}
+
+.app-row.support-row {
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(35, 88, 145, 0.08);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .notification-dot {
   position: absolute;
   top: 10px;

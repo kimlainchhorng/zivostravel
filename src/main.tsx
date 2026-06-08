@@ -20,6 +20,7 @@ import {
   Headphones,
   Hotel,
   Landmark,
+  LayoutGrid,
   Link2,
   LockKeyhole,
   MapPinned,
@@ -361,6 +362,16 @@ const savedTripsEvent = "zivo-travel-bookings-updated";
 const currencyKey = "zivo-travel-currency";
 const supportTicketsKey = "zivo-travel-support-tickets";
 const supportTicketsEvent = "zivo-travel-support-updated";
+
+const zivoApps = [
+  { key: "media", name: "Zivosmedia", tagline: "Social, feed & super-app", origin: "https://zivosmedia.com" },
+  { key: "travel", name: "Zivo Travel", tagline: "Flights, hotels, cars & bus", origin: "https://zivostravel.com" },
+  { key: "driver", name: "Zivo Driver", tagline: "Drive & earn", origin: "https://zivodriver.com" },
+  { key: "business", name: "Zivo Business", tagline: "Business profile & billing", origin: "https://zivobusiness.com" },
+  { key: "employee", name: "Zivo Employee", tagline: "Schedule, shifts & pay", origin: "https://zivoemployee.com" },
+  { key: "software", name: "Zivo Software", tagline: "Business software catalog", origin: "https://zivosoftware.com" },
+  { key: "chat", name: "ZivoChat", tagline: "Chat & support", origin: "https://zivoschat.com" },
+] as const;
 
 const routes = [
   {
@@ -1860,6 +1871,7 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [currency, setCurrency] = useState<CurrencyCode>(() => readCurrency());
   const [currencyOpen, setCurrencyOpen] = useState(false);
+  const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
   const routeKind = currentRouteKind();
   const reviewKind = currentReviewKind();
   const tripsRoute = isTripsRoute();
@@ -1964,25 +1976,27 @@ function App() {
   }, [currency]);
 
   useEffect(() => {
-    if (!currencyOpen && !notificationsOpen) {
+    if (!currencyOpen && !notificationsOpen && !appSwitcherOpen) {
       return undefined;
     }
 
     function closeFloatingPanels(event: PointerEvent) {
       const target = event.target as Element | null;
 
-      if (target?.closest(".currency-menu, .notification-panel, .icon-btn")) {
+      if (target?.closest(".currency-menu, .notification-panel, .icon-btn, .app-menu")) {
         return;
       }
 
       setCurrencyOpen(false);
       setNotificationsOpen(false);
+      setAppSwitcherOpen(false);
     }
 
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setCurrencyOpen(false);
         setNotificationsOpen(false);
+        setAppSwitcherOpen(false);
       }
     }
 
@@ -1993,7 +2007,7 @@ function App() {
       document.removeEventListener("pointerdown", closeFloatingPanels);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [currencyOpen, notificationsOpen]);
+  }, [currencyOpen, notificationsOpen, appSwitcherOpen]);
 
   return (
     <CurrencyContext.Provider value={{ currency, setCurrency }}>
@@ -2080,6 +2094,7 @@ function App() {
               aria-controls="currency-options"
               onClick={() => {
                 setNotificationsOpen(false);
+                setAppSwitcherOpen(false);
                 setCurrencyOpen((open) => !open);
               }}
             >
@@ -2142,12 +2157,73 @@ function App() {
             aria-controls="travel-notifications"
             onClick={() => {
               setCurrencyOpen(false);
+              setAppSwitcherOpen(false);
               setNotificationsOpen((open) => !open);
             }}
           >
             <Bell size={18} />
             <span className="notification-dot" />
           </button>
+          <div className="app-menu">
+            <button
+              className={`icon-btn ${appSwitcherOpen ? "active" : ""}`}
+              type="button"
+              aria-label="Switch ZIVO app"
+              aria-expanded={appSwitcherOpen}
+              onClick={() => {
+                setCurrencyOpen(false);
+                setNotificationsOpen(false);
+                setAppSwitcherOpen((open) => !open);
+              }}
+            >
+              <LayoutGrid size={18} aria-hidden="true" />
+            </button>
+            {appSwitcherOpen ? (
+              <div className="app-panel" role="menu" aria-label="ZIVO apps">
+                <div className="app-panel-header">
+                  <strong>ZIVO apps</strong>
+                  <small>One account across the whole network</small>
+                </div>
+                {zivoApps.map((app) => {
+                  const isCurrent = app.key === "travel";
+                  return isCurrent ? (
+                    <div key={app.key} className="app-row current" aria-current="page">
+                      <div className="app-row-body">
+                        <span>{app.name}</span>
+                        <small>{app.tagline}</small>
+                      </div>
+                      <CheckCircle2 size={15} aria-hidden="true" />
+                    </div>
+                  ) : (
+                    <a
+                      key={app.key}
+                      href={app.origin}
+                      className="app-row"
+                      role="menuitem"
+                      onClick={() => setAppSwitcherOpen(false)}
+                    >
+                      <div className="app-row-body">
+                        <span>{app.name}</span>
+                        <small>{app.tagline}</small>
+                      </div>
+                      <ArrowRight size={14} aria-hidden="true" />
+                    </a>
+                  );
+                })}
+                <a
+                  href={chatOrigin}
+                  className="app-row support-row"
+                  target="_blank"
+                  rel="noreferrer"
+                  role="menuitem"
+                  onClick={() => setAppSwitcherOpen(false)}
+                >
+                  <Headphones size={15} aria-hidden="true" />
+                  <span>Support on ZivoChat</span>
+                </a>
+              </div>
+            ) : null}
+          </div>
           <a className="avatar" href={engineUrl("/profile")} aria-label="Profile">
             <img
               src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80"
