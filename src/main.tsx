@@ -1860,6 +1860,15 @@ function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [currency, setCurrency] = useState<CurrencyCode>(() => readCurrency());
   const [currencyOpen, setCurrencyOpen] = useState(false);
+  // Re-render on browser back/forward. The routing below is derived from
+  // window.location at render time, so without a popstate listener the Back
+  // button changes the URL but leaves the view frozen until a manual refresh.
+  const [, forceRouteRender] = useState(0);
+  useEffect(() => {
+    const onPopState = () => forceRouteRender((n) => n + 1);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   const routeKind = currentRouteKind();
   const reviewKind = currentReviewKind();
   const tripsRoute = isTripsRoute();
