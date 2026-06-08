@@ -14,7 +14,6 @@ import {
   ChevronRight,
   Clock3,
   Circle,
-  CircleUserRound,
   CreditCard,
   Globe2,
   Headphones,
