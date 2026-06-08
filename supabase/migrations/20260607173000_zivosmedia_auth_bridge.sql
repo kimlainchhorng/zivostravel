@@ -51,6 +51,7 @@ revoke all on table public.linked_zivosmedia_users from anon;
 revoke all on table public.linked_zivosmedia_users from authenticated;
 revoke all on table public.linked_zivosmedia_users from service_role;
 grant select, insert, update on table public.linked_zivosmedia_users to service_role;
+grant select on table public.linked_zivosmedia_users to authenticated;
 
 drop policy if exists linked_zivosmedia_users_owner_read
   on public.linked_zivosmedia_users;

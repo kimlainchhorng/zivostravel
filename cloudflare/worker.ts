@@ -1430,8 +1430,11 @@ async function exchangeZivosmediaAuth(request: Request, env: Env) {
     app: "zivo-travel",
     mode: "zivosmedia_identity_linked",
     session: {
-      status: link?.local_user_id ? "local_user_linked" : "local_profile_pending",
-      reason: link?.local_user_id ? undefined : "local Supabase Auth session creation is intentionally deferred until Travel local auth is enabled.",
+      // Travel uses Path A for SESSIONS (no local auth.users): the user stays authenticated on
+      // the shared Zivosmedia session via the dual-client (auth=main, data=xbll). We only RECORD
+      // the identity link here — we intentionally do not mint a local Travel session.
+      status: "linked_shared_session",
+      reason: "Travel uses the shared Zivosmedia session (dual-client); the Zivosmedia identity link is recorded. No local Travel session is minted.",
     },
     profile: {
       local_user_id: link?.local_user_id || null,
