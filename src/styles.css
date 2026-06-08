@@ -93,6 +93,8 @@ button {
   justify-content: space-between;
   max-width: 1760px;
   margin: 0 auto 8px;
+  flex-wrap: wrap;
+  row-gap: 10px;
 }
 
 .handoff-banner {
