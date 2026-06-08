@@ -31,7 +31,10 @@ button {
 .travel-page {
   position: relative;
   min-height: 100vh;
-  padding: 26px clamp(18px, 2.2vw, 34px) 24px;
+  padding: calc(26px + env(safe-area-inset-top)) clamp(18px, 2.2vw, 34px)
+    calc(24px + env(safe-area-inset-bottom));
+  padding-right: calc(clamp(18px, 2.2vw, 34px) + env(safe-area-inset-right));
+  padding-left: calc(clamp(18px, 2.2vw, 34px) + env(safe-area-inset-left));
   background:
     radial-gradient(ellipse at 8% 5%, rgba(255, 255, 255, 0.98) 0 8%, transparent 9%),
     radial-gradient(ellipse at 93% 7%, rgba(255, 255, 255, 0.98) 0 9%, transparent 10%),
@@ -4547,17 +4550,17 @@ button {
 
   .notification-panel {
     position: fixed;
-    top: 104px;
-    right: 14px;
-    left: 14px;
+    top: calc(104px + env(safe-area-inset-top));
+    right: calc(14px + env(safe-area-inset-right));
+    left: calc(14px + env(safe-area-inset-left));
     width: auto;
   }
 
   .currency-panel {
     position: fixed;
-    top: 104px;
-    right: 14px;
-    left: 14px;
+    top: calc(104px + env(safe-area-inset-top));
+    right: calc(14px + env(safe-area-inset-right));
+    left: calc(14px + env(safe-area-inset-left));
     width: auto;
   }
 
@@ -5200,5 +5203,104 @@ button {
 
   .primary-search {
     min-height: 46px;
+  }
+}
+
+/* ---- Loading, offline, and preview-data states ---- */
+.data-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 12px 16px;
+  border: 1px solid rgba(7, 90, 242, 0.16);
+  border-radius: 14px;
+  color: #1f4f86;
+  background: linear-gradient(145deg, rgba(237, 247, 255, 0.92), rgba(255, 255, 255, 0.96));
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.data-notice svg {
+  flex-shrink: 0;
+  color: #075af2;
+}
+
+.data-notice-warn {
+  border-color: rgba(214, 132, 16, 0.32);
+  color: #8a5a06;
+  background: linear-gradient(145deg, rgba(255, 247, 232, 0.94), rgba(255, 255, 255, 0.96));
+}
+
+.data-notice-warn svg {
+  color: #d68410;
+}
+
+.results-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px;
+  border: 1px dashed rgba(33, 86, 139, 0.18);
+  border-radius: 16px;
+  color: #61748a;
+  font-weight: 800;
+}
+
+.results-list.is-loading {
+  opacity: 0.72;
+}
+
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 2px solid rgba(7, 90, 242, 0.22);
+  border-top-color: #075af2;
+  border-radius: 50%;
+  animation: zivo-spin 0.7s linear infinite;
+}
+
+.icon-spin {
+  animation: zivo-spin 0.8s linear infinite;
+}
+
+@keyframes zivo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.empty-trips-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.empty-trips-actions a {
+  min-height: 42px;
+  padding: 0 16px;
+}
+
+.booking-resume-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: #075af2;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.booking-resume-link:hover {
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .icon-spin {
+    animation-duration: 1.6s;
   }
 }

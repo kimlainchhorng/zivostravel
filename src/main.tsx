@@ -49,6 +49,32 @@ const engineOrigin =
 const chatOrigin =
   import.meta.env.VITE_ZIVO_CHAT_ORIGIN || "https://zivoschat.com";
 
+// Network requests fall back to local preview data on failure. Without a timeout a
+// hung connection would leave the UI on the initial fallback indefinitely with no
+// resolution; abort after this window so loading states can settle.
+const travelFetchTimeoutMs = 12000;
+
+// Creates an AbortController paired with a timeout that aborts the request. Returns
+// the controller plus a `clear` to cancel the timer once the request settles or the
+// effect unmounts. Reusing the same controller keeps the existing abort-aware catch
+// handlers (which check controller.signal.aborted) working unchanged.
+function createTimeoutController(timeoutMs = travelFetchTimeoutMs) {
+  const controller = new AbortController();
+  const timeoutId =
+    typeof window === "undefined"
+      ? null
+      : window.setTimeout(() => controller.abort(), timeoutMs);
+
+  return {
+    controller,
+    clear() {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    }
+  };
+}
+
 type SearchKind = "flights" | "hotels" | "cars" | "bus";
 type CurrencyCode = "USD" | "KHR" | "THB";
 type TripType = "Round trip" | "One way" | "Multi-city";
@@ -2152,6 +2178,10 @@ function App() {
             <img
               src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80"
               alt="Traveler profile"
+              loading="lazy"
+              decoding="async"
+              width={40}
+              height={40}
             />
           </a>
           {notificationsOpen ? (
@@ -2667,6 +2697,8 @@ function FeatureHero() {
         className="feature-image"
         src={heroCardImage}
         alt="Zivo Travel booking hero with temple, airplane, and balloons"
+        decoding="async"
+        fetchPriority="high"
       />
       <span className="feature-depth-card" aria-hidden="true" />
       <span className="cloud one" aria-hidden="true" />
@@ -2710,9 +2742,9 @@ function PopularRoutes() {
           <a
             key={`${route.from}-${route.to}`}
             className="route-card"
-            href={localUrl(`/flights?from=${encodeURIComponent(route.from)}&to=${encodeURIComponent(route.to)}&start=2026-06-15&end=2026-06-18&travelers=1`)}
+            href={localUrl(`/flights?from=${encodeURIComponent(route.from)}&to=${encodeURIComponent(route.to)}&start=${defaultDates.depart}&end=${defaultDates.return}&travelers=1`)}
           >
-            <img src={route.image} alt={`${route.from} to ${route.to}`} />
+            <img src={route.image} alt={`${route.from} to ${route.to}`} loading="lazy" decoding="async" />
             <button aria-label={`Open ${route.from} route`}>
               <ArrowRight size={18} />
             </button>
@@ -2815,7 +2847,7 @@ function MyTrips() {
     <article className="mytrip-card">
       <SectionHeader title="My trips" href="/trips" onPrevious={showPreviousTrip} onNext={showNextTrip} />
       <div className="trip-preview">
-        <img src={currentSlide.image} alt={currentSlide.title} />
+        <img src={currentSlide.image} alt={currentSlide.title} loading="lazy" decoding="async" />
         <span>{currentSlide.status}</span>
       </div>
       <div className="trip-details">
@@ -2859,10 +2891,11 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
 
   useEffect(() => {
     const fallback = fallbackDeals();
-    const controller = new AbortController();
+    const { controller, clear } = createTimeoutController();
     setPayload(fallback);
 
     if (!canUseTravelApi()) {
+      clear();
       return () => controller.abort();
     }
 
@@ -2882,9 +2915,13 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
         if (!controller.signal.aborted) {
           setPayload(fallback);
         }
-      });
+      })
+      .finally(() => clear());
 
-    return () => controller.abort();
+    return () => {
+      clear();
+      controller.abort();
+    };
   }, []);
 
   return (
@@ -2912,7 +2949,7 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
         {activePayload.deals.map((deal) => (
           <article key={deal.id} className="deal-card">
             <div className="deal-image">
-              <img src={deal.image || routePhnomPenhImage} alt={deal.title} />
+              <img src={deal.image || routePhnomPenhImage} alt={deal.title} loading="lazy" decoding="async" />
               <span>{deal.highlight}</span>
             </div>
             <div className="deal-body">
@@ -3120,11 +3157,15 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
                 <ReceiptText size={28} />
               </span>
               <h2>No saved trip drafts yet</h2>
-              <p>Create a booking draft from any result page and it will appear here for quick checkout resume.</p>
-              <a href={localUrl(searchTabs[3].href)}>
-                Start with bus
-                <ArrowRight size={18} />
-              </a>
+              <p>Start a search below, pick an option, and create a booking draft. It will appear here for quick checkout resume.</p>
+              <div className="empty-trips-actions">
+                {searchTabs.map(({ id, label, icon: TabIcon, href }) => (
+                  <a key={id} href={localUrl(href)}>
+                    <TabIcon size={16} />
+                    {label}
+                  </a>
+                ))}
+              </div>
             </article>
           )}
         </div>
@@ -3184,11 +3225,13 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
   const totalFunds = activeSummary.available + activeSummary.pending + activeSummary.rewards;
 
   useEffect(() => {
-    const controller = new AbortController();
+    let mounted = true;
+    const { controller, clear } = createTimeoutController();
     const fallback = fallbackWalletSummary();
     setSummary(fallback);
 
     if (!canUseTravelApi()) {
+      clear();
       return () => controller.abort();
     }
 
@@ -3204,19 +3247,28 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
 
         return response.json() as Promise<WalletSummaryPayload>;
       })
-      .then((walletSummary) => setSummary(walletSummary))
+      .then((walletSummary) => {
+        if (mounted) {
+          setSummary(walletSummary);
+        }
+      })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (mounted) {
           setSummary(fallback);
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        clear();
+        if (mounted) {
           setLoading(false);
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      mounted = false;
+      clear();
+      controller.abort();
+    };
   }, [refreshToken]);
 
   return (
@@ -3239,6 +3291,13 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
           <small>{new Date(activeSummary.checkedAt).toLocaleString()}</small>
         </div>
       </div>
+
+      {!activeSummary.persisted ? (
+        <div className="data-notice data-notice-warn" role="status">
+          <ShieldCheck size={16} />
+          <span>Preview balances — not a live wallet. {walletReasonLabel(activeSummary)}.</span>
+        </div>
+      ) : null}
 
       <div className="wallet-layout">
         <div className="wallet-main">
@@ -3352,8 +3411,13 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
               Cash out
             </span>
           </div>
-          <button type="button" onClick={() => setRefreshToken((token) => token + 1)} disabled={loading}>
-            <Repeat2 size={17} />
+          <button
+            type="button"
+            onClick={() => setRefreshToken((token) => token + 1)}
+            disabled={loading}
+            aria-busy={loading}
+          >
+            <Repeat2 size={17} className={loading ? "icon-spin" : undefined} />
             {loading ? "Refreshing" : "Refresh wallet"}
           </button>
           <a href={activeSummary.links.wallet}>
@@ -3547,39 +3611,51 @@ function SupportPage({ backendStatus }: { backendStatus: BackendStatus | null })
             </div>
 
             <form className="support-form" onSubmit={createSupportDraft}>
-              <label>
+              <label htmlFor="support-name">
                 Name
                 <input
+                  id="support-name"
+                  name="name"
                   type="text"
                   value={form.name}
                   autoComplete="name"
+                  aria-label="Your name"
                   onChange={(event) => updateForm("name", event.target.value)}
                 />
               </label>
-              <label>
+              <label htmlFor="support-email">
                 Email
                 <input
+                  id="support-email"
+                  name="email"
                   type="email"
                   value={form.email}
                   autoComplete="email"
                   placeholder="customer@example.com"
+                  aria-label="Your email address"
                   onChange={(event) => updateForm("email", event.target.value)}
                 />
               </label>
-              <label>
+              <label htmlFor="support-reference">
                 Booking reference
                 <input
+                  id="support-reference"
+                  name="bookingReference"
                   type="text"
                   value={form.bookingReference}
                   placeholder="ztb_..."
+                  aria-label="Booking reference"
                   onChange={(event) => updateForm("bookingReference", event.target.value)}
                 />
               </label>
-              <label className="support-message">
+              <label className="support-message" htmlFor="support-message">
                 Message
                 <textarea
+                  id="support-message"
+                  name="message"
                   value={form.message}
                   rows={5}
+                  aria-label="Support message"
                   onChange={(event) => updateForm("message", event.target.value)}
                 />
               </label>
@@ -3587,7 +3663,11 @@ function SupportPage({ backendStatus }: { backendStatus: BackendStatus | null })
                 {saving ? "Creating draft" : "Create support draft"}
                 <ArrowRight size={18} />
               </button>
-              {error ? <small className="support-error">{error}</small> : null}
+              {error ? (
+                <small className="support-error" role="alert" aria-live="assertive">
+                  {error}
+                </small>
+              ) : null}
             </form>
 
             {latestTicket ? (
@@ -3751,11 +3831,13 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let mounted = true;
+    const { controller, clear } = createTimeoutController();
     const fallback = fallbackAdminQueue();
     setPayload(fallback);
 
     if (!canUseTravelApi()) {
+      clear();
       return () => controller.abort();
     }
 
@@ -3771,19 +3853,28 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
 
         return response.json() as Promise<AdminQueuePayload>;
       })
-      .then((adminPayload) => setPayload(adminPayload))
+      .then((adminPayload) => {
+        if (mounted) {
+          setPayload(adminPayload);
+        }
+      })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (mounted) {
           setPayload(fallback);
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        clear();
+        if (mounted) {
           setLoading(false);
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      mounted = false;
+      clear();
+      controller.abort();
+    };
   }, [refreshToken]);
 
   return (
@@ -3832,14 +3923,28 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
             </article>
           </div>
 
+          {!activePayload.persisted ? (
+            <div className="data-notice data-notice-warn" role="status">
+              <ShieldCheck size={16} />
+              <span>
+                Preview data — not a live Supabase queue. {queueReasonLabel(activePayload)}.
+              </span>
+            </div>
+          ) : null}
+
           <article className="ops-table-card">
             <div className="ops-table-head">
               <div>
                 <h2>Pending handoffs</h2>
                 <p>{queueReasonLabel(activePayload)}</p>
               </div>
-              <button type="button" onClick={() => setRefreshToken((token) => token + 1)} disabled={loading}>
-                <Repeat2 size={17} />
+              <button
+                type="button"
+                onClick={() => setRefreshToken((token) => token + 1)}
+                disabled={loading}
+                aria-busy={loading}
+              >
+                <Repeat2 size={17} className={loading ? "icon-spin" : undefined} />
                 {loading ? "Refreshing" : "Refresh"}
               </button>
             </div>
@@ -3919,6 +4024,8 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
   const { currency } = useCurrency();
   const searchContext = useMemo(() => readSearchContext(kind), [kind]);
   const [payload, setPayload] = useState<ResultsPayload>(() => fallbackResults(kind));
+  const [loading, setLoading] = useState(false);
+  const [offline, setOffline] = useState(false);
   const activePayload = payload.product === kind ? payload : fallbackResults(kind);
   const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
   const Icon = activeTab.icon;
@@ -3928,16 +4035,20 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
   const displayResults = activePayload.results.map((result) => contextualizeResultItem(kind, result, searchContext));
 
   useEffect(() => {
-    const controller = new AbortController();
+    let mounted = true;
+    const { controller, clear } = createTimeoutController();
     const fallback = fallbackResults(kind);
     setPayload(fallback);
+    setOffline(false);
 
     if (!canUseTravelApi()) {
+      clear();
       return () => controller.abort();
     }
 
     const params = resultRequestParams(kind, searchContext);
 
+    setLoading(true);
     fetch(`/api/travel/results?${params.toString()}`, {
       headers: { accept: "application/json" },
       signal: controller.signal
@@ -3949,14 +4060,29 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
 
         return response.json() as Promise<ResultsPayload>;
       })
-      .then((results) => setPayload(results))
+      .then((results) => {
+        if (mounted) {
+          setPayload(results);
+        }
+      })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (mounted) {
           setPayload(fallback);
+          setOffline(true);
+        }
+      })
+      .finally(() => {
+        clear();
+        if (mounted) {
+          setLoading(false);
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      mounted = false;
+      clear();
+      controller.abort();
+    };
   }, [kind, searchContext.count, searchContext.end, searchContext.from, searchContext.rooms, searchContext.start, searchContext.to, searchContext.tripType]);
 
   return (
@@ -3995,13 +4121,30 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
         ))}
       </div>
 
+      {offline ? (
+        <div className="data-notice" role="status">
+          <ShieldCheck size={16} />
+          <span>Showing saved preview options — live results are temporarily unavailable.</span>
+        </div>
+      ) : null}
+
       <div className="results-layout">
-        <div className="results-list" aria-label={`${activeTab.label} options`}>
+        <div
+          className={`results-list${loading ? " is-loading" : ""}`}
+          aria-label={`${activeTab.label} options`}
+          aria-busy={loading}
+        >
+          {loading ? (
+            <div className="results-loading" role="status">
+              <span className="spinner" aria-hidden="true" />
+              Loading the latest {activeTab.label.toLowerCase()}…
+            </div>
+          ) : null}
           {displayResults.map((result) => (
             <article key={result.id} className="result-card">
               <div className="result-media">
                 {result.image ? (
-                  <img src={result.image} alt={result.title} />
+                  <img src={result.image} alt={result.title} loading="lazy" decoding="async" />
                 ) : (
                   <span>
                     <Icon size={32} />
@@ -4101,6 +4244,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
   const [bookingIntent, setBookingIntent] = useState<BookingIntentResponse | null>(null);
   const [bookingSaving, setBookingSaving] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
   const [traveler, setTraveler] = useState<TravelerDetails>(defaultTravelerDetails);
   const bookingHref = bookingIntent?.booking.checkoutUrl || activeSession.checkoutUrl;
   const bookingModeLabel = bookingIntent
@@ -4125,7 +4269,8 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
   }
 
   useEffect(() => {
-    const controller = new AbortController();
+    let mounted = true;
+    const { controller, clear } = createTimeoutController();
     const fallback = fallbackReviewSession(kind, resultId, dealId);
     setSession(fallback);
     setBookingIntent(null);
@@ -4133,6 +4278,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
     setTraveler(defaultTravelerDetails);
 
     if (!canUseTravelApi()) {
+      clear();
       return () => controller.abort();
     }
 
@@ -4146,6 +4292,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       params.set("deal", dealId);
     }
 
+    setSessionLoading(true);
     fetch(`/api/travel/session?${params.toString()}`, {
       headers: { accept: "application/json" },
       signal: controller.signal
@@ -4157,14 +4304,28 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 
         return response.json() as Promise<ReviewSession>;
       })
-      .then((payload) => setSession(payload))
+      .then((payload) => {
+        if (mounted) {
+          setSession(payload);
+        }
+      })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (mounted) {
           setSession(fallback);
         }
-    });
+      })
+      .finally(() => {
+        clear();
+        if (mounted) {
+          setSessionLoading(false);
+        }
+      });
 
-    return () => controller.abort();
+    return () => {
+      mounted = false;
+      clear();
+      controller.abort();
+    };
   }, [kind, resultId, dealId, searchContext.count, searchContext.end, searchContext.from, searchContext.rooms, searchContext.start, searchContext.to, searchContext.tripType]);
 
   async function createBookingDraft() {
@@ -4258,6 +4419,13 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
         ))}
       </div>
 
+      {sessionLoading ? (
+        <div className="data-notice" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <span>Loading the latest pricing and availability…</span>
+        </div>
+      ) : null}
+
       <div className="review-layout">
         <article className="review-card review-option">
           <div className="review-section-head">
@@ -4273,7 +4441,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
           <div className="review-result-row">
             <div className="result-media">
               {activeSession.result.image ? (
-                <img src={activeSession.result.image} alt={activeSession.result.title} />
+                <img src={activeSession.result.image} alt={activeSession.result.title} loading="lazy" decoding="async" />
               ) : (
                 <span>
                   <Icon size={32} />
@@ -4318,38 +4486,50 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
               </div>
             </div>
             <div className="traveler-grid">
-              <label>
+              <label htmlFor="traveler-name">
                 Full name
                 <input
+                  id="traveler-name"
+                  name="name"
                   type="text"
                   value={traveler.name}
                   autoComplete="name"
+                  aria-label="Traveler full name"
                   onChange={(event) => updateTraveler("name", event.target.value)}
                 />
               </label>
-              <label>
+              <label htmlFor="traveler-email">
                 Email
                 <input
+                  id="traveler-email"
+                  name="email"
                   type="email"
                   value={traveler.email}
                   autoComplete="email"
+                  aria-label="Traveler email"
                   onChange={(event) => updateTraveler("email", event.target.value)}
                 />
               </label>
-              <label>
+              <label htmlFor="traveler-phone">
                 Phone
                 <input
+                  id="traveler-phone"
+                  name="phone"
                   type="tel"
                   value={traveler.phone}
                   autoComplete="tel"
+                  aria-label="Traveler phone number"
                   onChange={(event) => updateTraveler("phone", event.target.value)}
                 />
               </label>
-              <label>
+              <label htmlFor="traveler-preference">
                 Preference
                 <input
+                  id="traveler-preference"
+                  name="preference"
                   type="text"
                   value={traveler.preference}
+                  aria-label="Travel preference"
                   onChange={(event) => updateTraveler("preference", event.target.value)}
                 />
               </label>
@@ -4399,10 +4579,25 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
             <span>Booking draft</span>
             <strong>{bookingIntent?.booking.bookingReference || "Not saved yet"}</strong>
             <p>{bookingModeLabel}</p>
-            <button type="button" onClick={createBookingDraft} disabled={bookingSaving}>
+            <button
+              type="button"
+              onClick={createBookingDraft}
+              disabled={bookingSaving}
+              aria-busy={bookingSaving}
+            >
               {bookingSaving ? "Saving draft" : bookingIntent ? "Refresh draft" : "Create booking draft"}
             </button>
-            {bookingError ? <small>{bookingError}</small> : null}
+            {bookingError ? (
+              <small role="alert" aria-live="assertive">
+                {bookingError}
+              </small>
+            ) : null}
+            {bookingIntent?.booking.bookingReference ? (
+              <a className="booking-resume-link" href={localUrl("/trips")}>
+                Find this draft in My trips
+                <ArrowRight size={15} />
+              </a>
+            ) : null}
           </div>
 
           <a className="checkout-link" href={bookingHref} onClick={handleCheckout}>
@@ -4451,11 +4646,13 @@ function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | nul
   const connectionMode = backendStatus?.mode === "cloudflare_bridge" ? "Cloudflare bridge" : "Local bridge";
 
   useEffect(() => {
-    const controller = new AbortController();
+    let mounted = true;
+    const { controller, clear } = createTimeoutController();
     const fallback = fallbackQuote(activeKind);
     setQuote(fallback);
 
     if (!canUseTravelApi()) {
+      clear();
       return () => controller.abort();
     }
 
@@ -4479,14 +4676,23 @@ function BookingWorkflow({ backendStatus }: { backendStatus: BackendStatus | nul
 
         return response.json() as Promise<QuotePayload>;
       })
-      .then((payload) => setQuote(payload))
+      .then((payload) => {
+        if (mounted) {
+          setQuote(payload);
+        }
+      })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (mounted) {
           setQuote(fallback);
         }
-      });
+      })
+      .finally(() => clear());
 
-    return () => controller.abort();
+    return () => {
+      mounted = false;
+      clear();
+      controller.abort();
+    };
   }, [activeKind]);
 
   return (

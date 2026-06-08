@@ -6,5 +6,17 @@ export default defineConfig({
   publicDir: false,
   server: {
     port: 5175
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split large, rarely-changing dependencies into a separate vendor
+        // chunk so the browser can cache them independently of app code.
+        manualChunks: {
+          react: ["react", "react-dom"],
+          icons: ["lucide-react"]
+        }
+      }
+    }
   }
 });
