@@ -61,6 +61,34 @@ type WalletSummary = {
   };
   checkedAt: string;
 };
+type DriverRequestPreview = {
+  app: "zivo-travel";
+  mode: "driver_request_preview";
+  persisted: false;
+  sourcePlatform: "zivo-travel";
+  targetPlatform: "zivo-driver";
+  travelBookingId: string;
+  driverJobId: null;
+  status: "pending_driver_request";
+  customerStatus: "driver_request_ready";
+  adminStatus: "visible_after_driver_job_creation";
+  chatThreadId: null;
+  paymentOrderId: null;
+  payoutStatus: "not_eligible_until_completed";
+  requestPayload: {
+    travel_booking_id: string;
+    source_platform: "zivo-travel";
+    target_platform: "zivo-driver";
+    pickup_address: string | null;
+    dropoff_address: string | null;
+    scheduled_for: string | null;
+    service_type: string | null;
+    traveler_count: number;
+    notes: string;
+  };
+  nextSteps: string[];
+  checkedAt: string;
+};
 type SupportTicketRow = Record<string, unknown> & {
   reference: string;
   status: string;
@@ -843,10 +871,71 @@ function buildBookingRow(
       app: "zivo-travel",
       bridge: "cloudflare",
       authority: "zivosmedia",
+      driverWorkflow: {
+        sourcePlatform: "zivo-travel",
+        targetPlatform: "zivo-driver",
+        travelBookingId: bookingReference,
+        driverJobId: null,
+        chatThreadId: null,
+        paymentOrderId: null,
+        status: "pending_driver_request",
+      },
       dealId: deal?.id || null,
       packageReady: Boolean(deal),
       travelerReady: Boolean(traveler),
     },
+  };
+}
+
+function buildDriverRequestPreview(requestUrl: URL, body?: Record<string, unknown>): DriverRequestPreview {
+  const booking = body?.booking && typeof body.booking === "object"
+    ? body.booking as Record<string, unknown>
+    : {};
+  const bookingReference = cleanText(
+    body?.travelBookingId || body?.travel_booking_id || booking.bookingReference || booking.booking_reference || requestUrl.searchParams.get("booking_reference"),
+    "ztb_preview",
+    80,
+  );
+  const service = cleanNullableText(booking.serviceType || booking.service_type || requestUrl.searchParams.get("type"), 80);
+  const origin = cleanNullableText(booking.origin || requestUrl.searchParams.get("from"), 140);
+  const destination = cleanNullableText(booking.destination || requestUrl.searchParams.get("to"), 140);
+  const scheduledFor = cleanNullableText(booking.dateStart || booking.date_start || requestUrl.searchParams.get("start"), 40);
+  const travelers = Number.parseInt(String(booking.travelers || requestUrl.searchParams.get("travelers") || "1"), 10);
+
+  return {
+    app: "zivo-travel",
+    mode: "driver_request_preview",
+    persisted: false,
+    sourcePlatform: "zivo-travel",
+    targetPlatform: "zivo-driver",
+    travelBookingId: bookingReference,
+    driverJobId: null,
+    status: "pending_driver_request",
+    customerStatus: "driver_request_ready",
+    adminStatus: "visible_after_driver_job_creation",
+    chatThreadId: null,
+    paymentOrderId: null,
+    payoutStatus: "not_eligible_until_completed",
+    requestPayload: {
+      travel_booking_id: bookingReference,
+      source_platform: "zivo-travel",
+      target_platform: "zivo-driver",
+      pickup_address: origin,
+      dropoff_address: destination,
+      scheduled_for: scheduledFor,
+      service_type: service,
+      traveler_count: Number.isFinite(travelers) ? Math.max(1, travelers) : 1,
+      notes: "Preview only. Driver job creation, payment order binding, chat thread creation, and payout eligibility require the approved Travel to Driver backend workflow.",
+    },
+    nextSteps: [
+      "Travel creates or confirms booking draft",
+      "Travel sends this payload to the approved Driver job receiver",
+      "Driver accepts or rejects the job",
+      "Driver status syncs back to Travel",
+      "ZivoChat and Zivo Admin attach to travel_booking_id and driver_job_id",
+      "Payment order and payout status attach after approved ZivoPay workflow",
+    ],
+    checkedAt: new Date().toISOString(),
   };
 }
 
@@ -1171,6 +1260,7 @@ export default {
         supportPersistence: supportPersistenceMode(env),
         adminQueue: hasPrivateSupabaseKey ? "supabase_rpc" : "preview",
         walletSummary: hasPrivateSupabaseKey ? "bridge_ready" : "preview",
+        driverWorkflow: "preview_contract",
         services: travelServices,
         routes: routePaths,
         checkedAt: new Date().toISOString(),
@@ -1264,6 +1354,19 @@ export default {
       }
 
       return json(request, await createBookingIntent(request, url, env));
+    }
+
+    if (url.pathname === "/api/travel/driver-request") {
+      if (request.method === "GET") {
+        return json(request, buildDriverRequestPreview(url));
+      }
+
+      if (request.method !== "POST") {
+        return json(request, { error: "method_not_allowed" }, 405);
+      }
+
+      const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+      return json(request, buildDriverRequestPreview(url, body));
     }
 
     if (url.pathname === "/api/travel/search") {

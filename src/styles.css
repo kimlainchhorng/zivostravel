@@ -2299,6 +2299,114 @@ button {
   opacity: 0.64;
 }
 
+.driver-request-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid rgba(7, 90, 242, 0.14);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(235, 246, 255, 0.92), rgba(255, 255, 255, 0.98)),
+    #ffffff;
+}
+
+.driver-request-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.driver-request-head > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 13px;
+  color: #075af2;
+  background: #ffffff;
+}
+
+.driver-request-head h3 {
+  margin: 0;
+  color: #07162c;
+  font-size: 18px;
+  line-height: 1.08;
+}
+
+.driver-request-head p {
+  margin: 4px 0 0;
+  color: #61748a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.driver-request-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.driver-request-grid div {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(33, 86, 139, 0.1);
+  border-radius: 13px;
+  background: #ffffff;
+}
+
+.driver-request-grid span,
+.driver-request-status span {
+  display: block;
+  color: #61748a;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.driver-request-grid strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: #183452;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.driver-request-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.driver-request-status span {
+  width: fit-content;
+  padding: 7px 9px;
+  border-radius: 999px;
+  color: #075af2;
+  background: rgba(7, 90, 242, 0.08);
+}
+
+.driver-request-card button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(7, 90, 242, 0.18);
+  border-radius: 13px;
+  color: #075af2;
+  background: #ffffff;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.driver-request-card button:disabled {
+  cursor: progress;
+  opacity: 0.64;
+}
+
 .review-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

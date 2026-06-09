@@ -63,6 +63,7 @@ type BackendStatus = {
   supportPersistence?: string;
   adminQueue?: string;
   walletSummary?: string;
+  driverWorkflow?: string;
   services?: string[];
   routes?: Partial<Record<SearchKind | "checkout" | "wallet" | "support", string>>;
   checkedAt?: string;
@@ -168,6 +169,33 @@ type BookingIntentResponse = {
   persisted: boolean;
   booking: BookingRecord;
   reason?: string;
+};
+type DriverRequestPreview = {
+  mode: string;
+  persisted: boolean;
+  sourcePlatform: string;
+  targetPlatform: string;
+  travelBookingId: string;
+  driverJobId: string | null;
+  status: string;
+  customerStatus: string;
+  adminStatus: string;
+  chatThreadId: string | null;
+  paymentOrderId: string | null;
+  payoutStatus: string;
+  requestPayload: {
+    travel_booking_id: string;
+    source_platform: string;
+    target_platform: string;
+    pickup_address: string | null;
+    dropoff_address: string | null;
+    scheduled_for: string | null;
+    service_type: string | null;
+    traveler_count: number;
+    notes: string;
+  };
+  nextSteps: string[];
+  checkedAt: string;
 };
 type SavedTrip = BookingRecord & {
   mode: string;
@@ -1352,6 +1380,45 @@ function localBookingIntent(
       traveler: travelerDetails
     },
     reason: "local_preview"
+  };
+}
+
+function localDriverRequestPreview(booking: BookingRecord | null, session: ReviewSession, context: SearchContext): DriverRequestPreview {
+  const travelBookingId = booking?.bookingReference || "Create booking draft first";
+
+  return {
+    mode: "local_driver_request_preview",
+    persisted: false,
+    sourcePlatform: "zivo-travel",
+    targetPlatform: "zivo-driver",
+    travelBookingId,
+    driverJobId: null,
+    status: booking ? "pending_driver_request" : "waiting_for_booking_draft",
+    customerStatus: booking ? "driver_request_ready" : "booking_draft_required",
+    adminStatus: "visible_after_driver_job_creation",
+    chatThreadId: null,
+    paymentOrderId: null,
+    payoutStatus: "not_eligible_until_completed",
+    requestPayload: {
+      travel_booking_id: travelBookingId,
+      source_platform: "zivo-travel",
+      target_platform: "zivo-driver",
+      pickup_address: context.from || null,
+      dropoff_address: context.to || null,
+      scheduled_for: context.start || null,
+      service_type: booking?.serviceType || serviceType(session.product),
+      traveler_count: Math.max(1, context.count || 1),
+      notes: "Preview only. Driver job creation, status webhooks, payment order binding, and payout eligibility are handled in the approved backend workflow.",
+    },
+    nextSteps: [
+      "Create or confirm the Travel booking draft",
+      "Send the approved driver request payload to Zivo Driver",
+      "Driver accepts or rejects the job",
+      "Driver status syncs back to Travel and Admin",
+      "ZivoChat attaches support to the booking and driver job",
+      "Payment order and payout status attach after job completion",
+    ],
+    checkedAt: new Date().toISOString(),
   };
 }
 
@@ -4176,6 +4243,8 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
   const [bookingIntent, setBookingIntent] = useState<BookingIntentResponse | null>(null);
   const [bookingSaving, setBookingSaving] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [driverRequest, setDriverRequest] = useState<DriverRequestPreview | null>(null);
+  const [driverRequestSaving, setDriverRequestSaving] = useState(false);
   const [traveler, setTraveler] = useState<TravelerDetails>(defaultTravelerDetails);
   const bookingHref = bookingIntent?.booking.checkoutUrl || activeSession.checkoutUrl;
   const bookingModeLabel = bookingIntent
@@ -4205,6 +4274,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
     setSession(fallback);
     setBookingIntent(null);
     setBookingError(null);
+    setDriverRequest(null);
     setTraveler(defaultTravelerDetails);
 
     if (!canUseTravelApi()) {
@@ -4304,6 +4374,46 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
     event.preventDefault();
     const intent = bookingIntent || await createBookingDraft();
     window.location.href = intent.booking.checkoutUrl;
+  }
+
+  async function prepareDriverRequest() {
+    if (driverRequestSaving) {
+      return;
+    }
+
+    setDriverRequestSaving(true);
+    const intent = bookingIntent || await createBookingDraft();
+    const fallback = localDriverRequestPreview(intent.booking, activeSession, searchContext);
+
+    if (!canUseTravelApi()) {
+      setDriverRequest(fallback);
+      setDriverRequestSaving(false);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/travel/driver-request", {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          travelBookingId: intent.booking.bookingReference,
+          booking: intent.booking
+        })
+      });
+
+      if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+        throw new Error("Driver request preview unavailable");
+      }
+
+      setDriverRequest(await response.json() as DriverRequestPreview);
+    } catch {
+      setDriverRequest(fallback);
+    } finally {
+      setDriverRequestSaving(false);
+    }
   }
 
   return (
@@ -4478,6 +4588,44 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
               {bookingSaving ? "Saving draft" : bookingIntent ? "Refresh draft" : "Create booking draft"}
             </button>
             {bookingError ? <small>{bookingError}</small> : null}
+          </div>
+
+          <div className="driver-request-card">
+            <div className="driver-request-head">
+              <span>
+                <Car size={18} />
+              </span>
+              <div>
+                <h3>Travel to Driver request</h3>
+                <p>Preview contract only. No driver job, payment, or payout is created here.</p>
+              </div>
+            </div>
+            <div className="driver-request-grid">
+              <div>
+                <span>travel_booking_id</span>
+                <strong>{driverRequest?.travelBookingId || bookingIntent?.booking.bookingReference || "Create draft first"}</strong>
+              </div>
+              <div>
+                <span>driver_job_id</span>
+                <strong>{driverRequest?.driverJobId || "Pending"}</strong>
+              </div>
+              <div>
+                <span>chat_thread_id</span>
+                <strong>{driverRequest?.chatThreadId || "Placeholder"}</strong>
+              </div>
+              <div>
+                <span>payment_order_id</span>
+                <strong>{driverRequest?.paymentOrderId || "Placeholder"}</strong>
+              </div>
+            </div>
+            <div className="driver-request-status">
+              <span>{driverRequest?.status || "waiting_for_booking_draft"}</span>
+              <span>{driverRequest?.payoutStatus || "not_eligible_until_completed"}</span>
+            </div>
+            <button type="button" onClick={prepareDriverRequest} disabled={driverRequestSaving}>
+              <Link2 size={15} />
+              {driverRequestSaving ? "Preparing request" : "Prepare driver request"}
+            </button>
           </div>
 
           <a className="checkout-link" href={bookingHref} onClick={handleCheckout}>
