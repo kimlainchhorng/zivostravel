@@ -816,7 +816,7 @@ button {
 .flight-fields {
   position: relative;
   display: grid;
-  grid-template-columns: 1.2fr 42px 1.2fr 0.85fr 0.85fr;
+  grid-template-columns: 1.24fr 42px 1.24fr 1.12fr 1.12fr;
   align-items: center;
   min-height: 78px;
   overflow: hidden;
@@ -826,13 +826,14 @@ button {
 }
 
 .flight-fields.no-swap {
-  grid-template-columns: 1.12fr 1fr 0.94fr 0.94fr;
+  grid-template-columns: 1.25fr 0.92fr 1fr 1fr;
 }
 
 .field {
   position: relative;
+  min-width: 0;
   min-height: 78px;
-  padding: 14px 18px;
+  padding: 14px 12px;
   border-right: 1px solid rgba(33, 86, 139, 0.12);
 }
 
@@ -842,14 +843,19 @@ button {
 
 .field span {
   display: block;
-  color: #7b8ba0;
+  padding-right: 22px;
+  color: #61748a;
   font-size: 13px;
+  letter-spacing: 0.01em;
 }
 
 .field strong {
   display: block;
   margin-top: 6px;
-  font-size: 18px;
+  overflow: hidden;
+  font-size: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .field input {
@@ -857,19 +863,30 @@ button {
   width: 100%;
   min-width: 0;
   margin-top: 4px;
-  padding: 0 30px 0 0;
+  padding: 0 4px 0 0;
   border: 0;
   color: #07162c;
   background: transparent;
   font: inherit;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 900;
   line-height: 1.2;
+  text-overflow: ellipsis;
   outline: none;
 }
 
 .field input[type="date"] {
-  font-size: 16px;
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+/* Compact the native date picker glyph so the full date value stays visible
+   in the tight desktop search row. */
+.field input[type="date"]::-webkit-calendar-picker-indicator {
+  width: 13px;
+  margin-left: 2px;
+  padding: 0;
+  opacity: 0.55;
 }
 
 .field input:focus-visible {
@@ -883,15 +900,25 @@ button {
 .field small {
   display: block;
   margin-top: 3px;
+  overflow: hidden;
   color: #64788f;
   font-size: 13px;
   font-weight: 750;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .field svg {
   position: absolute;
-  right: 18px;
-  bottom: 18px;
+  top: 15px;
+  right: 16px;
+  color: #9bb0c6;
+}
+
+/* Date fields already render a native picker indicator — drop the redundant
+   decorative glyph so the date value has room to breathe. */
+.field:has(input[type="date"]) svg {
+  display: none;
 }
 
 .swap-btn {
@@ -1260,16 +1287,17 @@ button {
 .feature-benefits {
   position: absolute;
   z-index: 7;
-  right: 28px;
+  right: 20px;
   bottom: 14px;
-  left: 28px;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 68px;
-  padding: 0 28px;
+  left: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px 16px;
+  min-height: 64px;
+  padding: 12px 20px;
   border: 1px solid rgba(36, 80, 122, 0.1);
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.82);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.85);
   box-shadow:
     0 18px 42px rgba(44, 102, 160, 0.15),
     inset 0 1px 0 rgba(255, 255, 255, 0.86);
@@ -1279,13 +1307,14 @@ button {
 .feature-benefits span {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: 7px;
+  font-size: 13px;
   font-weight: 850;
   white-space: nowrap;
 }
 
 .feature-benefits svg {
+  flex: 0 0 auto;
   color: #075af2;
 }
 
@@ -1365,11 +1394,11 @@ button {
 
 .route-card button {
   position: absolute;
-  right: 18px;
-  top: 98px;
+  right: 16px;
+  top: 84px;
   display: grid;
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   place-items: center;
   border: 0;
   border-radius: 50%;
@@ -1405,7 +1434,8 @@ button {
 .route-card b {
   display: block;
   color: #07162c;
-  font-size: 19px;
+  font-size: 18px;
+  white-space: nowrap;
 }
 
 .build-card > p {
@@ -5236,29 +5266,19 @@ button {
     font-size: 42px;
   }
 
-  .plane-3d {
-    right: -106px;
-    bottom: 52px;
-    width: 318px;
-    height: 92px;
-  }
-
-  .balloon-one {
-    top: 128px;
-    right: 78px;
-  }
-
-  .balloon-two,
-  .balloon-three {
+  /* The floating CSS plane/balloons are tuned for the large desktop card and
+     glitch at phone size — the hero image already carries the scene, so drop
+     the decorative overlays here. */
+  .plane-3d,
+  .cloud,
+  .balloon {
     display: none;
   }
 
+  /* Decorative benefit chips are redundant with the trust strip below and get
+     clipped by the card's fixed height on phones — hide them here. */
   .feature-benefits {
-    position: relative;
-    inset: auto;
-    flex-wrap: wrap;
-    margin: -22px 14px 0;
-    padding: 16px;
+    display: none;
   }
 
   .popular-card,
@@ -5409,4 +5429,244 @@ button {
   .primary-search {
     min-height: 46px;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Premium foundation (appended last so it wins the cascade — additive only)
+   - Keyboard focus-visible rings for every interactive surface
+   - Reduced-motion guard
+--------------------------------------------------------------------------- */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="tab"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #075af2;
+  outline-offset: 2px;
+}
+
+/* Search inputs sit inside an overflow-clipped grid — use an inset underline
+   so the focus affordance is never cropped by the field edges. */
+.field input:focus-visible {
+  outline: none;
+  color: #075af2;
+  box-shadow: inset 0 -2px 0 #075af2;
+}
+
+/* ---------------------------------------------------------------------------
+   Interaction layer — premium hover feedback on clickable surfaces.
+   (Durations are zeroed by the reduced-motion guard below.)
+--------------------------------------------------------------------------- */
+.route-card,
+.mini-service,
+.bundle-card,
+.deal-card,
+.result-card,
+.route-card button {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.primary-search {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
+}
+
+.feature-card {
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.deal-action a,
+.result-action a,
+.results-aside a {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
+}
+
+.search-tabs button,
+.results-tabs a {
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+/* Hover end-states are scoped to true hover devices so they never "stick"
+   after a tap on touch screens. */
+@media (hover: hover) and (pointer: fine) {
+  .route-card:hover,
+  .mini-service:hover,
+  .bundle-card:hover,
+  .deal-card:hover,
+  .result-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(7, 90, 242, 0.28);
+    box-shadow: 0 26px 56px rgba(34, 94, 154, 0.18);
+  }
+
+  .mini-service:hover {
+    background: linear-gradient(135deg, #f3f9ff, #ffffff);
+  }
+
+  .route-card:hover button {
+    transform: scale(1.08);
+    box-shadow: 0 16px 32px rgba(44, 102, 160, 0.28);
+  }
+
+  .primary-search:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 24px 46px rgba(8, 86, 236, 0.34);
+    filter: saturate(1.06);
+  }
+
+  /* The hero card keeps its 3-D tilt but leans toward the viewer on hover. */
+  .feature-card:hover {
+    transform: perspective(1200px) rotateY(-1deg) translateY(-5px);
+    box-shadow:
+      0 34px 90px rgba(35, 99, 165, 0.24),
+      12px 12px 0 rgba(255, 255, 255, 0.74),
+      18px 18px 0 rgba(191, 216, 237, 0.36);
+  }
+
+  .deal-action a:hover,
+  .result-action a:hover,
+  .results-aside a:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 22px 44px rgba(8, 86, 236, 0.32);
+    filter: saturate(1.06);
+  }
+
+  .search-tabs button:not(.active):hover,
+  .results-tabs a:not(.active):hover {
+    border-color: rgba(7, 90, 242, 0.35);
+    background: rgba(7, 90, 242, 0.07);
+    color: #075af2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Scroll surfaces — hide the bar on the horizontal pill navs (the active item
+   auto-scrolls into view), and give content scrollers a thin branded bar.
+--------------------------------------------------------------------------- */
+.nav-links,
+.utility-nav {
+  scrollbar-width: none;
+}
+
+.nav-links::-webkit-scrollbar,
+.utility-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.ops-table-card {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(7, 90, 242, 0.32) transparent;
+}
+
+.ops-table-card::-webkit-scrollbar {
+  height: 9px;
+}
+
+.ops-table-card::-webkit-scrollbar-track {
+  margin: 0 14px;
+  background: transparent;
+}
+
+.ops-table-card::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(7, 90, 242, 0.28);
+}
+
+.ops-table-card::-webkit-scrollbar-thumb:hover {
+  background: rgba(7, 90, 242, 0.46);
+}
+
+/* Route prices stay on one line; trim the size on the narrow phone cards so
+   even long currencies (e.g. 7-digit KHR) fit without crowding the edge. */
+@media (max-width: 720px) {
+  .route-card b {
+    font-size: 14px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Dropdown panels — subtle entrance from their trigger.
+   (The reduced-motion guard zeroes the duration for users who opt out.)
+--------------------------------------------------------------------------- */
+@keyframes zivo-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.currency-panel {
+  transform-origin: top left;
+  animation: zivo-panel-in 0.16s ease both;
+}
+
+.app-panel,
+.notification-panel {
+  transform-origin: top right;
+  animation: zivo-panel-in 0.16s ease both;
+}
+
+/* ---------------------------------------------------------------------------
+   Skip-to-content link — lets keyboard users bypass the top nav (WCAG 2.4.1).
+   Hidden off-screen until focused, then slides in at the top-left.
+--------------------------------------------------------------------------- */
+.route-outlet {
+  display: contents;
+}
+
+.skip-link {
+  position: fixed;
+  top: 14px;
+  left: 14px;
+  z-index: 100;
+  padding: 11px 20px;
+  border-radius: 13px;
+  color: #ffffff;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+  background: linear-gradient(135deg, #126bff, #064ce8);
+  box-shadow: 0 16px 34px rgba(8, 86, 236, 0.32);
+  transform: translateY(-160%);
+  transition: transform 0.18s ease;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
 }

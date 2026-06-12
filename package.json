@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "agent:deepseek": "node scripts/agents/deepseek-runner.mjs",
+    "agent:mimo": "node scripts/agents/mimo-runner.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",

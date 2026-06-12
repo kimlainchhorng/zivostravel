@@ -2078,6 +2078,9 @@ function App() {
   return (
     <CurrencyContext.Provider value={{ currency, setCurrency }}>
       <main className="travel-page">
+        <a className="skip-link" href="#travel-main">
+          Skip to content
+        </a>
         {isConnectedHandoff && (
           <section className="handoff-banner" aria-label={`Connected workflow from ${handoffLabel}`}>
             <div className="handoff-copy">
@@ -2339,6 +2342,7 @@ function App() {
         </div>
       </header>
 
+      <div id="travel-main" className="route-outlet" tabIndex={-1}>
       {dealsRoute ? (
         <DealsPage backendStatus={backendStatus} />
       ) : tripsRoute ? (
@@ -2383,6 +2387,7 @@ function App() {
           <BookingWorkflow backendStatus={backendStatus} />
         </>
       )}
+      </div>
       </main>
     </CurrencyContext.Provider>
   );
@@ -2580,7 +2585,7 @@ function searchFields(
     {
       label: "Return",
       value: travelDates.return,
-      helper: tripType === "One way" ? "Optional for one way" : travelDates.returnLabel,
+      helper: tripType === "One way" ? "Optional" : travelDates.returnLabel,
       icon: CalendarDays,
       inputType: "date",
       onChange: (value) => updateDate("return", value)
@@ -2854,7 +2859,7 @@ function PopularRoutes() {
             className="route-card"
             href={localUrl(`/flights?from=${encodeURIComponent(route.from)}&to=${encodeURIComponent(route.to)}&start=2026-06-15&end=2026-06-18&travelers=1`)}
           >
-            <img src={route.image} alt={`${route.from} to ${route.to}`} />
+            <img src={route.image} alt={`${route.from} to ${route.to}`} loading="lazy" />
             <button aria-label={`Open ${route.from} route`}>
               <ArrowRight size={18} />
             </button>
@@ -2957,7 +2962,7 @@ function MyTrips() {
     <article className="mytrip-card">
       <SectionHeader title="My trips" href="/trips" onPrevious={showPreviousTrip} onNext={showNextTrip} />
       <div className="trip-preview">
-        <img src={currentSlide.image} alt={currentSlide.title} />
+        <img src={currentSlide.image} alt={currentSlide.title} loading="lazy" />
         <span>{currentSlide.status}</span>
       </div>
       <div className="trip-details">
@@ -3054,7 +3059,7 @@ function DealsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
         {activePayload.deals.map((deal) => (
           <article key={deal.id} className="deal-card">
             <div className="deal-image">
-              <img src={deal.image || routePhnomPenhImage} alt={deal.title} />
+              <img src={deal.image || routePhnomPenhImage} alt={deal.title} loading="lazy" />
               <span>{deal.highlight}</span>
             </div>
             <div className="deal-body">
@@ -4143,7 +4148,7 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
             <article key={result.id} className="result-card">
               <div className="result-media">
                 {result.image ? (
-                  <img src={result.image} alt={result.title} />
+                  <img src={result.image} alt={result.title} loading="lazy" />
                 ) : (
                   <span>
                     <Icon size={32} />
@@ -4458,7 +4463,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
           <div className="review-result-row">
             <div className="result-media">
               {activeSession.result.image ? (
-                <img src={activeSession.result.image} alt={activeSession.result.title} />
+                <img src={activeSession.result.image} alt={activeSession.result.title} loading="lazy" />
               ) : (
                 <span>
                   <Icon size={32} />
