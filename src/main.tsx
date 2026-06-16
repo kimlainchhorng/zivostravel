@@ -755,9 +755,15 @@ function readCurrency(): CurrencyCode {
     return "USD";
   }
 
-  const stored = window.localStorage.getItem(currencyKey);
-
-  return stored === "KHR" || stored === "THB" ? stored : "USD";
+  try {
+    // Runs from a useState initializer at mount; a raw localStorage read crashes
+    // the whole app if storage is disabled (private mode / locked-down WebView).
+    // Matches the guarded readSavedTrips / readSupportTickets pattern below.
+    const stored = window.localStorage.getItem(currencyKey);
+    return stored === "KHR" || stored === "THB" ? stored : "USD";
+  } catch {
+    return "USD";
+  }
 }
 
 function formatAmountText(amount: string, currency: CurrencyCode) {
@@ -2046,7 +2052,11 @@ function App() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(currencyKey, currency);
+      try {
+        window.localStorage.setItem(currencyKey, currency);
+      } catch {
+        // persistence unavailable (private mode / quota) — keep in-memory currency
+      }
     }
   }, [currency]);
 
