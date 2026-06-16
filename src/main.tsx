@@ -1510,8 +1510,12 @@ function writeSavedTrips(trips: SavedTrip[]) {
     return;
   }
 
-  window.localStorage.setItem(savedTripsKey, JSON.stringify(trips.slice(0, 12)));
-  window.dispatchEvent(new Event(savedTripsEvent));
+  try {
+    window.localStorage.setItem(savedTripsKey, JSON.stringify(trips.slice(0, 12)));
+    window.dispatchEvent(new Event(savedTripsEvent));
+  } catch {
+    // persistence unavailable (private mode / quota) — skip without crashing the save
+  }
 }
 
 function saveBookingIntent(intent: BookingIntentResponse, traveler?: TravelerDetails) {
@@ -1657,8 +1661,12 @@ function writeSupportTickets(tickets: SupportTicket[]) {
     return;
   }
 
-  window.localStorage.setItem(supportTicketsKey, JSON.stringify(tickets.slice(0, 12)));
-  window.dispatchEvent(new Event(supportTicketsEvent));
+  try {
+    window.localStorage.setItem(supportTicketsKey, JSON.stringify(tickets.slice(0, 12)));
+    window.dispatchEvent(new Event(supportTicketsEvent));
+  } catch {
+    // persistence unavailable (private mode / quota) — skip without crashing the submit
+  }
 }
 
 function saveSupportTicket(response: SupportTicketResponse) {
