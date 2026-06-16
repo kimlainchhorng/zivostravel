@@ -5019,8 +5019,13 @@ function Field({
 }) {
   // Travel dates can't be in the past; default the floor to today so the native
   // date picker disables prior days. Callers may pass a tighter min (e.g. a
-  // return date can't precede departure).
-  const dateMin = inputType === "date" ? min ?? new Date().toISOString().slice(0, 10) : undefined;
+  // return date can't precede departure). Use the Cambodia-local day (device is
+  // UTC+7, no DST): toISOString().slice(0,10) is the UTC day, which from
+  // 00:00–06:59 ICT is still yesterday, so before dawn the floor would slip a day
+  // back and let a customer pick a past departure date.
+  const now = new Date();
+  const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const dateMin = inputType === "date" ? min ?? localToday : undefined;
   return (
     <label className={`field ${onChange ? "field-editable" : ""}`}>
       <span>{label}</span>
