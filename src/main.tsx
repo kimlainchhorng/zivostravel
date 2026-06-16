@@ -1422,6 +1422,14 @@ function localDriverRequestPreview(booking: BookingRecord | null, session: Revie
   };
 }
 
+/** Coerce an untrusted value (e.g. a hand-edited localStorage entry) to a finite
+ *  number, falling back to 0 for NaN/Infinity so a tampered draft never renders
+ *  totals as "USD NaN" in the wallet/admin views downstream. */
+function finiteNumber(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function normalizeSavedTrip(value: unknown): SavedTrip | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -1446,9 +1454,9 @@ function normalizeSavedTrip(value: unknown): SavedTrip | null {
     resultTitle: trip.resultTitle,
     provider: trip.provider || "Zivo Travel",
     currency: trip.currency || "USD",
-    subtotal: Number(trip.subtotal || 0),
-    serviceFee: Number(trip.serviceFee || 0),
-    total: Number(trip.total || 0),
+    subtotal: finiteNumber(trip.subtotal),
+    serviceFee: finiteNumber(trip.serviceFee),
+    total: finiteNumber(trip.total),
     reviewUrl: trip.reviewUrl || "/trips",
     checkoutUrl: trip.checkoutUrl,
     ssoUrl: trip.ssoUrl || engineUrl(bridge.routing.authHandoff),
