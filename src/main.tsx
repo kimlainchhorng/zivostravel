@@ -1437,6 +1437,17 @@ function finiteNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function validTimestamp(value: unknown): string {
+  // savedAt is read from localStorage, which can be corrupt or hand-edited. A
+  // non-empty but unparseable string would slip past a truthiness check and
+  // render "Invalid Date" downstream (admin queue lastUpdate), so fall back to
+  // now whenever the value can't be parsed as a real date.
+  if (typeof value === "string" && !Number.isNaN(new Date(value).getTime())) {
+    return value;
+  }
+  return new Date().toISOString();
+}
+
 function normalizeSavedTrip(value: unknown): SavedTrip | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -1473,7 +1484,7 @@ function normalizeSavedTrip(value: unknown): SavedTrip | null {
     mode: trip.mode || "local_booking_preview",
     persisted: Boolean(trip.persisted),
     reason: trip.reason,
-    savedAt: trip.savedAt || new Date().toISOString()
+    savedAt: validTimestamp(trip.savedAt)
   };
 }
 
