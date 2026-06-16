@@ -390,6 +390,7 @@ const savedTripsEvent = "zivo-travel-bookings-updated";
 const currencyKey = "zivo-travel-currency";
 const supportTicketsKey = "zivo-travel-support-tickets";
 const supportTicketsEvent = "zivo-travel-support-updated";
+const adminTokenKey = "zivo-travel-admin-token";
 
 const zivoApps = [
   { key: "media", name: "Zivosmedia", tagline: "Social, feed & super-app", origin: "https://zivosmedia.com" },
@@ -746,6 +747,24 @@ function engineUrl(path: string) {
   return new URL(path, engineOrigin).toString();
 }
 
+// The booking checkoutUrl is normally built locally via engineUrl (always the
+// platform origin), but in API mode it comes back verbatim from
+// /api/travel/bookings. Validate it before window.location.href so a stale or
+// tampered API response can't bounce the customer to a look-alike checkout.
+// Allow the platform apex and any subdomain (every first-party URL here targets
+// engineOrigin); anything else falls back to a canonical engine checkout path.
+function isEngineCheckoutUrl(url: string) {
+  try {
+    const target = new URL(url);
+    if (target.protocol !== "https:") return false;
+    const host = target.hostname.toLowerCase();
+    const apex = new URL(engineOrigin).hostname.toLowerCase().split(".").slice(-2).join(".");
+    return host === apex || host.endsWith(`.${apex}`);
+  } catch {
+    return false;
+  }
+}
+
 function localUrl(path: string) {
   return path;
 }
@@ -936,6 +955,41 @@ function canUseTravelApi() {
   }
 
   return !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function readAdminToken() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  try {
+    return window.localStorage.getItem(adminTokenKey)?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveAdminToken(token: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    const trimmed = token.trim();
+
+    if (trimmed) {
+      window.localStorage.setItem(adminTokenKey, trimmed);
+    } else {
+      window.localStorage.removeItem(adminTokenKey);
+    }
+  } catch {
+    // localStorage can be blocked (private mode); the header just stays empty.
+  }
+}
+
+function adminAuthHeaders(token: string): Record<string, string> {
+  const trimmed = token.trim();
+  return trimmed ? { authorization: `Bearer ${trimmed}` } : {};
 }
 
 function checkoutUrl(kind: SearchKind, resultId?: string, dealId?: string) {
@@ -2927,9 +2981,9 @@ function PopularRoutes() {
             href={localUrl(`/flights?from=${encodeURIComponent(route.from)}&to=${encodeURIComponent(route.to)}&start=2026-06-15&end=2026-06-18&travelers=1`)}
           >
             <img src={route.image} alt={`${route.from} to ${route.to}`} loading="lazy" />
-            <button aria-label={`Open ${route.from} route`}>
+            <span className="route-go" aria-hidden="true">
               <ArrowRight size={18} />
-            </button>
+            </span>
             <div>
               <strong>{route.from}</strong>
               <span>{route.to}</span>
@@ -3939,6 +3993,9 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
   const [refreshToken, setRefreshToken] = useState(0);
   const [loading, setLoading] = useState(false);
   const [savedTrips, setSavedTrips] = useState<SavedTrip[]>(() => readSavedTrips());
+  const [adminToken, setAdminToken] = useState(() => readAdminToken());
+  const [adminTokenDraft, setAdminTokenDraft] = useState(() => readAdminToken());
+  const [unauthorized, setUnauthorized] = useState(false);
   const activePayload = payload.queue.length ? payload : fallbackAdminQueue();
   const queue = activePayload.queue;
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
@@ -3974,11 +4031,19 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
     }
 
     setLoading(true);
+    setUnauthorized(false);
     fetch("/api/travel/admin/queue?limit=8", {
-      headers: { accept: "application/json" },
+      headers: { accept: "application/json", ...adminAuthHeaders(adminToken) },
       signal: controller.signal
     })
       .then((response) => {
+        if (response.status === 401 || response.status === 403) {
+          if (!controller.signal.aborted) {
+            setUnauthorized(true);
+          }
+          throw new Error("Travel operations queue requires an admin token");
+        }
+
         if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
           throw new Error("Travel operations queue unavailable");
         }
@@ -3998,7 +4063,7 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
       });
 
     return () => controller.abort();
-  }, [refreshToken]);
+  }, [refreshToken, adminToken]);
 
   return (
     <section className="ops-page" aria-label="Travel operations">
@@ -4020,6 +4085,46 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
           <small>{new Date(activePayload.checkedAt).toLocaleString()}</small>
         </div>
       </div>
+
+      <form
+        className="ops-admin-token"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const next = adminTokenDraft.trim();
+          saveAdminToken(next);
+          setAdminToken(next);
+          setRefreshToken((token) => token + 1);
+        }}
+        style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", margin: "12px 0 4px" }}
+      >
+        <input
+          type="password"
+          value={adminTokenDraft}
+          onChange={(event) => setAdminTokenDraft(event.target.value)}
+          placeholder="Admin access token"
+          aria-label="Admin access token"
+          autoComplete="off"
+          style={{ flex: "1 1 220px", minWidth: "180px", padding: "8px 10px", borderRadius: "10px", border: "1px solid rgba(148,163,184,0.5)" }}
+        />
+        <button type="submit">{adminToken ? "Update token" : "Save token"}</button>
+        {adminToken ? (
+          <button
+            type="button"
+            onClick={() => {
+              saveAdminToken("");
+              setAdminToken("");
+              setAdminTokenDraft("");
+            }}
+          >
+            Clear
+          </button>
+        ) : null}
+      </form>
+      {unauthorized ? (
+        <p role="alert" style={{ color: "#b91c1c", margin: "0 0 8px", fontSize: "0.85rem" }}>
+          Admin token required or invalid. Paste your travel admin token to load the live queue.
+        </p>
+      ) : null}
 
       <div className="ops-layout">
         <div className="ops-main">
@@ -4444,12 +4549,29 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 
   async function handleCheckout(event: React.MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
+    // The sibling "Create booking draft" button disables itself while a draft is
+    // in flight; this checkout link did not. A second click during the server
+    // round-trip re-enters createBookingDraft (which short-circuits to a throwaway
+    // local intent) and navigates with a reference that diverges from the draft
+    // still being persisted. Guard re-entry so the first request wins.
+    if (bookingSaving) {
+      return;
+    }
     const intent = bookingIntent || await createBookingDraft();
-    window.location.href = intent.booking.checkoutUrl;
+    const target = isEngineCheckoutUrl(intent.booking.checkoutUrl)
+      ? intent.booking.checkoutUrl
+      : checkoutUrl(kind, activeSession.result.id, activeSession.deal?.id);
+    window.location.href = target;
   }
 
   async function prepareDriverRequest() {
-    if (driverRequestSaving) {
+    // Also bail while a booking draft is mid-save: with no saved intent yet,
+    // createBookingDraft() short-circuits to a throwaway local intent whenever
+    // bookingSaving is true, so preparing the driver request in that window would
+    // bind travel_booking_id to a reference that diverges from the server draft
+    // still being persisted — the same in-flight divergence already guarded on the
+    // checkout link.
+    if (driverRequestSaving || bookingSaving) {
       return;
     }
 
@@ -4694,14 +4816,19 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
               <span>{driverRequest?.status || "waiting_for_booking_draft"}</span>
               <span>{driverRequest?.payoutStatus || "not_eligible_until_completed"}</span>
             </div>
-            <button type="button" onClick={prepareDriverRequest} disabled={driverRequestSaving}>
+            <button type="button" onClick={prepareDriverRequest} disabled={driverRequestSaving || bookingSaving}>
               <Link2 size={15} />
-              {driverRequestSaving ? "Preparing request" : "Prepare driver request"}
+              {driverRequestSaving ? "Preparing request" : bookingSaving ? "Waiting for draft" : "Prepare driver request"}
             </button>
           </div>
 
-          <a className="checkout-link" href={bookingHref} onClick={handleCheckout}>
-            Continue secure checkout
+          <a
+            className="checkout-link"
+            href={bookingHref}
+            onClick={handleCheckout}
+            aria-disabled={bookingSaving}
+          >
+            {bookingSaving ? "Preparing checkout" : "Continue secure checkout"}
             <ArrowRight size={18} />
           </a>
 

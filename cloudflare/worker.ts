@@ -5,6 +5,7 @@ export interface Env {
   ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY?: string;
   ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY?: string;
   ZIVO_AUTHORITY_SUPABASE_URL?: string;
+  ZIVO_TRAVEL_ADMIN_TOKEN?: string;
 }
 
 const securityHeaders = {
@@ -223,6 +224,41 @@ function privilegedSupabaseKey(env: Env) {
 
 function writeSupabaseKey(env: Env) {
   return privilegedSupabaseKey(env) || readEnvSecret(env.ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY);
+}
+
+function adminApiToken(env: Env) {
+  return readEnvSecret(env.ZIVO_TRAVEL_ADMIN_TOKEN);
+}
+
+// Constant-time compare so a wrong token can't be recovered by timing the
+// response. Length is allowed to leak (token length is not the secret).
+function timingSafeEqual(a: string, b: string) {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  let mismatch = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    mismatch |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+
+  return mismatch === 0;
+}
+
+// Gate for service-role admin reads. Fails closed: if no admin token is
+// configured, nothing matches, so privileged data is never served unauthenticated.
+function isAuthorizedAdminRequest(request: Request, env: Env) {
+  const expected = adminApiToken(env);
+
+  if (!expected) {
+    return false;
+  }
+
+  const header = (request.headers.get("authorization") || "").trim();
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  const presented = match ? match[1].trim() : "";
+
+  return Boolean(presented) && timingSafeEqual(presented, expected);
 }
 
 function usesModernSupabaseKey(key: string) {
@@ -843,7 +879,7 @@ function buildBookingRow(
     destination: requestUrl.searchParams.get("to") || "Siem Reap",
     date_start: requestUrl.searchParams.get("start") || "2026-06-15",
     date_end: requestUrl.searchParams.get("end") || "2026-06-18",
-    travelers: Number.isFinite(travelers) ? travelers : 1,
+    travelers: Number.isFinite(travelers) ? Math.max(1, Math.min(99, travelers)) : 1,
     currency: "USD",
     subtotal: result.price,
     service_fee: serviceFee,
@@ -1333,6 +1369,13 @@ export default {
     if (url.pathname === "/api/travel/admin/queue") {
       if (request.method !== "GET") {
         return json(request, { error: "method_not_allowed" }, 405);
+      }
+
+      // CORS does not stop server-side callers (curl), so the service-role path
+      // must be gated here. The synthetic preview (no service-role key) stays
+      // public and harmless; only the live admin read requires the admin token.
+      if (privilegedSupabaseKey(env) && !isAuthorizedAdminRequest(request, env)) {
+        return json(request, { error: "unauthorized" }, 401);
       }
 
       return json(request, await fetchAdminQueue(url, env));

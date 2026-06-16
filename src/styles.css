@@ -1392,7 +1392,7 @@ button {
   object-fit: cover;
 }
 
-.route-card button {
+.route-card .route-go {
   position: absolute;
   right: 16px;
   top: 84px;
@@ -1400,10 +1400,13 @@ button {
   width: 44px;
   height: 44px;
   place-items: center;
+  margin: 0;
   border: 0;
   border-radius: 50%;
   background: #ffffff;
+  color: #07162c;
   box-shadow: 0 12px 28px rgba(44, 102, 160, 0.18);
+  pointer-events: none;
 }
 
 .route-card div {
@@ -5467,7 +5470,7 @@ summary:focus-visible,
 .bundle-card,
 .deal-card,
 .result-card,
-.route-card button {
+.route-card .route-go {
   transition:
     transform 0.18s ease,
     box-shadow 0.18s ease,
@@ -5522,7 +5525,7 @@ summary:focus-visible,
     background: linear-gradient(135deg, #f3f9ff, #ffffff);
   }
 
-  .route-card:hover button {
+  .route-card:hover .route-go {
     transform: scale(1.08);
     box-shadow: 0 16px 32px rgba(44, 102, 160, 0.28);
   }
