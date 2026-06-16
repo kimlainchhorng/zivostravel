@@ -2684,10 +2684,16 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
   }
 
   function updateDate(field: "depart" | "return", value: string) {
-    setDates((current) => ({
-      ...current,
-      [field]: value || current[field]
-    }));
+    setDates((current) => {
+      const next = { ...current, [field]: value || current[field] };
+      // A native min= on the return input only constrains the picker, not a
+      // value left stale when departure later moves past it — keep the range
+      // valid so the search never navigates with return before depart.
+      if (next.return && next.return < next.depart) {
+        next.return = next.depart;
+      }
+      return next;
+    });
   }
 
   function swapRoute() {
