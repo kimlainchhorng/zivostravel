@@ -111,6 +111,7 @@ type SearchField = {
   helper?: string;
   icon?: typeof CalendarDays;
   inputType?: "text" | "date";
+  min?: string;
   onChange?: (value: string) => void;
 };
 type SearchContext = {
@@ -2493,6 +2494,7 @@ function searchFields(
         helper: travelDates.returnLabel,
         icon: CalendarDays,
         inputType: "date",
+        min: travelDates.depart,
         onChange: (value) => updateDate("return", value)
       }
     ];
@@ -2530,6 +2532,7 @@ function searchFields(
         helper: "10:00 AM",
         icon: Clock3,
         inputType: "date",
+        min: travelDates.depart,
         onChange: (value) => updateDate("return", value)
       }
     ];
@@ -2596,6 +2599,7 @@ function searchFields(
       helper: tripType === "One way" ? "Optional" : travelDates.returnLabel,
       icon: CalendarDays,
       inputType: "date",
+      min: travelDates.depart,
       onChange: (value) => updateDate("return", value)
     }
   ];
@@ -4820,6 +4824,7 @@ function Field({
   value,
   helper,
   inputType,
+  min,
   onChange
 }: {
   icon?: typeof CalendarDays;
@@ -4827,8 +4832,13 @@ function Field({
   value: string;
   helper?: string;
   inputType?: "text" | "date";
+  min?: string;
   onChange?: (value: string) => void;
 }) {
+  // Travel dates can't be in the past; default the floor to today so the native
+  // date picker disables prior days. Callers may pass a tighter min (e.g. a
+  // return date can't precede departure).
+  const dateMin = inputType === "date" ? min ?? new Date().toISOString().slice(0, 10) : undefined;
   return (
     <label className={`field ${onChange ? "field-editable" : ""}`}>
       <span>{label}</span>
@@ -4836,6 +4846,7 @@ function Field({
         <input
           type={inputType || "text"}
           value={value}
+          min={dateMin}
           aria-label={label}
           onChange={(event) => onChange(event.target.value)}
         />
