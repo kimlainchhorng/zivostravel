@@ -4856,12 +4856,16 @@ function SectionHeader({
       <h2>{title}</h2>
       <div>
         <a href={localUrl(href)}>View all</a>
-        <button type="button" aria-label="Previous" onClick={onPrevious}>
-          <ChevronLeft size={16} />
-        </button>
-        <button type="button" aria-label="Next" onClick={onNext}>
-          <ChevronRight size={16} />
-        </button>
+        {onPrevious ? (
+          <button type="button" aria-label="Previous" onClick={onPrevious}>
+            <ChevronLeft size={16} />
+          </button>
+        ) : null}
+        {onNext ? (
+          <button type="button" aria-label="Next" onClick={onNext}>
+            <ChevronRight size={16} />
+          </button>
+        ) : null}
       </div>
     </div>
   );
