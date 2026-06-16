@@ -2942,9 +2942,56 @@ function FeatureHero() {
       <span className="balloon balloon-one" aria-hidden="true" />
       <span className="balloon balloon-two" aria-hidden="true" />
       <span className="balloon balloon-three" aria-hidden="true" />
-      <span className="plane-3d" aria-hidden="true">
-        <span />
-      </span>
+      <svg className="plane-3d" viewBox="0 0 640 260" aria-hidden="true" role="img">
+        <defs>
+          <linearGradient id="planeBody" x1="0%" x2="100%" y1="16%" y2="88%">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="48%" stopColor="#f5faff" />
+            <stop offset="100%" stopColor="#b8cadd" />
+          </linearGradient>
+          <linearGradient id="planeWing" x1="0%" x2="100%" y1="0%" y2="100%">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="62%" stopColor="#d7e5f2" />
+            <stop offset="100%" stopColor="#9eb4ca" />
+          </linearGradient>
+          <filter id="planeShadow" x="-20%" y="-28%" width="150%" height="170%">
+            <feDropShadow dx="0" dy="18" stdDeviation="16" floodColor="#123663" floodOpacity="0.28" />
+          </filter>
+        </defs>
+        <g filter="url(#planeShadow)">
+          <path
+            d="M36 139C60 106 100 88 156 84L478 61c54-4 99 18 128 58 9 12 3 28-12 32l-96 26c-28 8-58 12-88 11l-256-7c-54-1-95-15-118-42Z"
+            fill="url(#planeBody)"
+          />
+          <path
+            d="M250 143 454 93c19-5 34 14 25 31L369 235c-8 8-21 7-27-3l-97-73c-7-5-4-14 5-16Z"
+            fill="url(#planeWing)"
+          />
+          <path
+            d="M492 73 584 10c15-10 36 0 37 18l2 55c0 14-11 25-25 25h-98c-18 0-23-25-8-35Z"
+            fill="url(#planeWing)"
+          />
+          <path
+            d="M494 174 620 207c15 4 21 22 10 34-7 8-18 10-27 5l-138-65 29-7Z"
+            fill="#c6d7e8"
+            opacity="0.82"
+          />
+          <path d="M39 139c24-33 64-51 120-55l40-3c-24 25-52 42-84 51-29 8-54 10-76 7Z" fill="#e8f1fa" />
+          <ellipse cx="105" cy="120" rx="18" ry="13" fill="#2f587f" opacity="0.34" />
+          <path
+            d="M206 111c67-7 134-13 201-20"
+            stroke="#6989a8"
+            strokeDasharray="12 16"
+            strokeLinecap="round"
+            strokeWidth="13"
+            opacity="0.62"
+          />
+          <path d="M180 155c88 10 179 13 272 8" stroke="#eef6ff" strokeLinecap="round" strokeWidth="20" opacity="0.72" />
+          <circle cx="392" cy="194" r="22" fill="#d8e5f1" />
+          <circle cx="392" cy="194" r="12" fill="#123052" />
+          <path d="M538 121h62" stroke="#8ca7c0" strokeLinecap="round" strokeWidth="9" opacity="0.52" />
+        </g>
+      </svg>
       <span className="feature-benefits" aria-hidden="true">
         <span>
           <ShieldCheck size={17} />
