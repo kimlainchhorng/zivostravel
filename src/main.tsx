@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import {
   ArrowRight,
@@ -2643,6 +2643,7 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
   const [searchCount, setSearchCount] = useState(1);
   const [route, setRoute] = useState(defaultRoute);
   const [dates, setDates] = useState(defaultDates);
+  const searchLinkRef = useRef<HTMLAnchorElement>(null);
   const activeTab = searchTabs.find((tab) => tab.id === activeKind) || searchTabs[0];
   const ActiveIcon = activeTab.icon;
   const fields = searchFields(activeKind, route, tripType, searchCount, dates, updateRoute, updateDate);
@@ -2714,7 +2715,26 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
   }
 
   return (
-    <article className="search-panel">
+    <article
+      className="search-panel"
+      onKeyDown={(e) => {
+        // Let the mobile keyboard's Go/Enter key launch the search from a text
+        // field (origin/destination). Clicking the CTA anchor keeps navigation
+        // logic in one place. Skipped mid-IME-composition so committing a Khmer
+        // place name with Enter doesn't fire, and skipped on date inputs so the
+        // native picker keeps its own Enter behavior.
+        const el = e.target as HTMLInputElement;
+        if (
+          e.key === "Enter" &&
+          !e.nativeEvent.isComposing &&
+          el.tagName === "INPUT" &&
+          el.type !== "date"
+        ) {
+          e.preventDefault();
+          searchLinkRef.current?.click();
+        }
+      }}
+    >
       <h1>Where will you go next?</h1>
       <p>Search flights, hotels, cars and buses — all in one place.</p>
 
@@ -2816,7 +2836,7 @@ function SearchPanel({ backendStatus }: { backendStatus: BackendStatus | null })
           <Repeat2 size={15} />
           Reset
         </button>
-        <a className="primary-search" href={resultHref}>
+        <a ref={searchLinkRef} className="primary-search" href={resultHref}>
           {activeTab.cta}
           <ArrowRight size={20} />
         </a>
