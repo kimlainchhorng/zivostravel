@@ -26,8 +26,10 @@ Branch **`integration/zivo-ecosystem-user-flow-v1`** (isolated, not merged) in a
 ## Run 5 — Travel booking / Wallet-handoff / refund (this run)
 | Repo | Branch | Commit | Notes |
 |------|--------|--------|-------|
-| zivostravel | `integration/zivo-ecosystem-user-flow-v1` | branch HEAD (this run) — `git rev-parse integration/zivo-ecosystem-user-flow-v1` | `zivo-ecosystem/travel/` module + fixtures + 13 tests |
-| ZIVO-wallet | `integration/zivo-ecosystem-user-flow-v1` | branch HEAD (this run) | handoff doc + this manifest + mirrored travel module |
+| zivostravel | `integration/zivo-ecosystem-user-flow-v1` | `96015bd` | `zivo-ecosystem/travel/` module + fixtures + 13 tests |
+| ZIVO-wallet | `integration/zivo-ecosystem-user-flow-v1` | `9305b8a` | handoff doc + mirrored travel module + this manifest |
+
+_(This closeout commit updates the two rows above with the exact travel-flow commits; the closeout commit's own SHA is the current branch HEAD.)_
 
 ## Verification
 - Offline contract + journey tests: `node --test zivo-ecosystem/*.test.mjs` → 17 pass.
