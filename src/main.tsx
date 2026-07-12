@@ -5124,8 +5124,28 @@ function SectionHeader({
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+// Isolated, safe REVIEW surface. Under /review we mount a fully self-contained
+// snapshot app (dynamically imported so the real app never loads review code,
+// and the review path never mounts <App/> — so none of the /api/travel
+// fetchers, bridge/engine helpers, or booking/payment effects ever run).
+const __isReviewRoute =
+  typeof window !== "undefined" &&
+  (window.location.pathname === "/review" || window.location.pathname.startsWith("/review/"));
+
+const __root = ReactDOM.createRoot(document.getElementById("root")!);
+
+if (__isReviewRoute) {
+  import("./review/ReviewApp").then(({ default: ReviewApp }) => {
+    __root.render(
+      <React.StrictMode>
+        <ReviewApp />
+      </React.StrictMode>
+    );
+  });
+} else {
+  __root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}
