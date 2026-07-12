@@ -3085,7 +3085,17 @@ function MyTrips() {
           meta: `${trip.bookingReference} • ${trip.traveler?.name || trip.status}`,
           service: serviceLabel(trip.serviceType),
           secondary: trip.persisted ? "Synced" : "Preview",
-          status: trip.persisted ? "Confirmed" : "Resume",
+          // A persisted draft is only saved to Supabase (status pending_checkout/
+          // preview) — it is NOT paid or provider-confirmed. Deriving the badge
+          // from `persisted` mislabels an unpaid draft as "Confirmed" and
+          // collapses payment/booking into mere persistence. Show a truthful
+          // label from the real booking status; only a provider-confirmed status
+          // ever reads "Confirmed".
+          status: /confirm/i.test(trip.status || "")
+            ? "Confirmed"
+            : trip.persisted
+              ? "Draft"
+              : "Resume",
           image: trip.serviceType === "hotels" ? tripBeachImage : trip.serviceType === "bus" ? routePhnomPenhImage : routeTokyoImage,
           href: trip.reviewUrl || "/trips",
           icon: Icon
