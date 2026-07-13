@@ -67,6 +67,61 @@ export async function getAuthorityAccessToken(): Promise<string | null> {
   return error || !accessToken ? null : accessToken;
 }
 
+/**
+ * The user id is used only to scope volatile Travel UI state in this document.
+ * It is never written to browser storage by the booking-draft store.
+ */
+export async function getAuthoritySessionUserId(): Promise<string | null> {
+  if (!authorityClient) return null;
+
+  const { data, error } = await authorityClient.auth.getSession();
+  const userId = data.session?.user?.id?.trim();
+
+  return error || !userId ? null : userId;
+}
+
+/**
+ * Notify consumers when the authenticated authority identity changes. Token
+ * refreshes for the same user are deliberately ignored; a sign-out or switch
+ * to another user is a hard boundary for volatile customer data.
+ */
+export function subscribeToAuthorityUserChanges(onUserChanged: (userId: string | null) => void) {
+  if (!authorityClient) {
+    return () => undefined;
+  }
+
+  let disposed = false;
+  let currentUserId: string | null | undefined;
+
+  const applySession = (session: { user?: { id?: string } } | null) => {
+    const nextUserId = session?.user?.id?.trim() || null;
+
+    if (currentUserId === undefined || currentUserId !== nextUserId) {
+      currentUserId = nextUserId;
+      onUserChanged(nextUserId);
+    }
+  };
+
+  void authorityClient.auth.getSession().then(({ data }) => {
+    if (!disposed) {
+      applySession(data.session);
+    }
+  });
+
+  const {
+    data: { subscription },
+  } = authorityClient.auth.onAuthStateChange((_event, session) => {
+    if (!disposed) {
+      applySession(session);
+    }
+  });
+
+  return () => {
+    disposed = true;
+    subscription.unsubscribe();
+  };
+}
+
 export function sanitizeAuthorityHandoffNext(next: string | null | undefined): string {
   if (!next) return "/";
 

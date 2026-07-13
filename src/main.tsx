@@ -43,11 +43,19 @@ import {
   authoritySessionUnavailableMessage,
   consumeAuthorityHandoff,
   getAuthorityAccessToken,
+  getAuthoritySessionUserId,
+  subscribeToAuthorityUserChanges,
 } from "./authoritySession";
 import {
   createAuthenticatedBookingRequest,
   createBookingIdempotencyKey,
 } from "./bookingRequest";
+import {
+  clearBookingDraftSession,
+  readSessionBookingDrafts,
+  setBookingDraftSessionOwner,
+  writeSessionBookingDrafts,
+} from "./bookingDraftStore";
 import "./styles.css";
 
 const engineOrigin =
@@ -394,7 +402,7 @@ const cityCodeMap: Record<string, string> = {
   singapore: "SIN"
 };
 
-const savedTripsKey = "zivo-travel-booking-drafts";
+const legacySavedTripsKey = "zivo-travel-booking-drafts";
 const savedTripsEvent = "zivo-travel-bookings-updated";
 const currencyKey = "zivo-travel-currency";
 const supportTicketsKey = "zivo-travel-support-tickets";
@@ -1492,19 +1500,16 @@ function localDriverRequestPreview(booking: BookingRecord | null, session: Revie
   };
 }
 
-/** Coerce an untrusted value (e.g. a hand-edited localStorage entry) to a finite
- *  number, falling back to 0 for NaN/Infinity so a tampered draft never renders
- *  totals as "USD NaN" in the wallet/admin views downstream. */
+/** Coerce a backend value to a finite number so a malformed booking response
+ *  cannot render totals as "USD NaN" in downstream preview views. */
 function finiteNumber(value: unknown, fallback = 0): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
 function validTimestamp(value: unknown): string {
-  // savedAt is read from localStorage, which can be corrupt or hand-edited. A
-  // non-empty but unparseable string would slip past a truthiness check and
-  // render "Invalid Date" downstream (admin queue lastUpdate), so fall back to
-  // now whenever the value can't be parsed as a real date.
+  // A non-empty but unparseable value would render "Invalid Date" downstream,
+  // so fall back to now whenever the booking response lacks a valid timestamp.
   if (typeof value === "string" && !Number.isNaN(new Date(value).getTime())) {
     return value;
   }
@@ -1551,37 +1556,51 @@ function normalizeSavedTrip(value: unknown): SavedTrip | null {
   };
 }
 
-function readSavedTrips() {
-  if (typeof window === "undefined") {
-    return [] as SavedTrip[];
-  }
+let legacySavedTripsPurged = false;
 
-  try {
-    const raw = window.localStorage.getItem(savedTripsKey);
-    const parsed = raw ? JSON.parse(raw) : [];
-
-    return Array.isArray(parsed)
-      ? parsed.map(normalizeSavedTrip).filter((trip): trip is SavedTrip => Boolean(trip))
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeSavedTrips(trips: SavedTrip[]) {
-  if (typeof window === "undefined") {
+/**
+ * Remove records created by releases that stored complete booking drafts in
+ * browser storage. This only deletes the old key; the replacement never reads
+ * or writes booking details to any browser persistence API.
+ */
+function purgeLegacySavedTrips() {
+  if (legacySavedTripsPurged || typeof window === "undefined") {
     return;
   }
 
+  legacySavedTripsPurged = true;
+
   try {
-    window.localStorage.setItem(savedTripsKey, JSON.stringify(trips.slice(0, 12)));
-    window.dispatchEvent(new Event(savedTripsEvent));
+    window.localStorage.removeItem(legacySavedTripsKey);
+    window.sessionStorage.removeItem(legacySavedTripsKey);
   } catch {
-    // persistence unavailable (private mode / quota) — skip without crashing the save
+    // Storage can be unavailable in locked-down WebViews. There is no new data
+    // to persist, so failure to clean a legacy key cannot create a new leak.
   }
 }
 
-function saveBookingIntent(intent: BookingIntentResponse, traveler?: TravelerDetails) {
+function readSavedTrips() {
+  purgeLegacySavedTrips();
+  return readSessionBookingDrafts<SavedTrip>()
+    .map(normalizeSavedTrip)
+    .filter((trip): trip is SavedTrip => Boolean(trip));
+}
+
+function writeSavedTrips(trips: SavedTrip[]) {
+  purgeLegacySavedTrips();
+
+  if (!writeSessionBookingDrafts(trips)) {
+    return;
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(savedTripsEvent));
+  }
+}
+
+function saveBookingIntent(intent: BookingIntentResponse, traveler: TravelerDetails | undefined, ownerId: string) {
+  setBookingDraftSessionOwner(ownerId);
+
   const saved: SavedTrip = {
     ...intent.booking,
     traveler: sanitizeTravelerDetails(traveler || intent.booking.traveler),
@@ -2072,6 +2091,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    return subscribeToAuthorityUserChanges((userId) => {
+      if (userId) {
+        setBookingDraftSessionOwner(userId);
+      } else {
+        clearBookingDraftSession();
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event(savedTripsEvent));
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     if (!canUseTravelApi()) {
@@ -2125,11 +2158,9 @@ function App() {
     }
 
     window.addEventListener(savedTripsEvent, refreshTrips);
-    window.addEventListener("storage", refreshTrips);
 
     return () => {
       window.removeEventListener(savedTripsEvent, refreshTrips);
-      window.removeEventListener("storage", refreshTrips);
     };
   }, []);
 
@@ -3139,11 +3170,9 @@ function MyTrips() {
     }
 
     window.addEventListener(savedTripsEvent, refresh);
-    window.addEventListener("storage", refresh);
 
     return () => {
       window.removeEventListener(savedTripsEvent, refresh);
-      window.removeEventListener("storage", refresh);
     };
   }, []);
 
@@ -3324,8 +3353,8 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
     backendStatus?.bookingPersistence === "supabase"
       ? "Supabase sync ready"
       : backendStatus?.bookingPersistence === "supabase_insert"
-        ? "Supabase draft capture"
-        : "Browser drafts";
+      ? "Supabase draft capture"
+        : "This-session drafts";
   const tripCounts = useMemo(
     () => ({
       all: trips.length,
@@ -3364,11 +3393,9 @@ function TripsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
     }
 
     window.addEventListener(savedTripsEvent, refresh);
-    window.addEventListener("storage", refresh);
 
     return () => {
       window.removeEventListener(savedTripsEvent, refresh);
-      window.removeEventListener("storage", refresh);
     };
   }, []);
 
@@ -4095,11 +4122,9 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
     }
 
     window.addEventListener(savedTripsEvent, refreshTrips);
-    window.addEventListener("storage", refreshTrips);
 
     return () => {
       window.removeEventListener(savedTripsEvent, refreshTrips);
-      window.removeEventListener("storage", refreshTrips);
     };
   }, []);
 
@@ -4587,7 +4612,6 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 
     if (!canUseTravelApi()) {
       const intent = localBookingIntent(activeSession, kind, travelerDetails);
-      saveBookingIntent(intent, travelerDetails);
       setBookingIntent(intent);
       setBookingError("Local preview only. No booking draft or checkout was created.");
       setBookingSaving(false);
@@ -4605,6 +4629,12 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
       const accessToken = await getAuthorityAccessToken();
 
       if (!accessToken) {
+        throw new Error(authoritySessionUnavailableMessage());
+      }
+
+      const authorityUserId = await getAuthoritySessionUserId();
+
+      if (!authorityUserId) {
         throw new Error(authoritySessionUnavailableMessage());
       }
 
@@ -4637,7 +4667,11 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
         throw new Error("The secure booking service did not confirm a saved draft. No checkout was opened.");
       }
 
-      saveBookingIntent(intent, travelerDetails);
+      if ((await getAuthoritySessionUserId()) !== authorityUserId) {
+        throw new Error("Your Zivos Media session changed before the booking draft was saved. Sign in again before continuing.");
+      }
+
+      saveBookingIntent(intent, travelerDetails, authorityUserId);
       setBookingIntent(intent);
       return intent;
     } catch (error) {
