@@ -89,12 +89,12 @@ button {
 }
 
 .topbar {
-  gap: 28px;
+  gap: 16px;
+  align-items: center;
   justify-content: space-between;
   max-width: 1760px;
   margin: 0 auto 8px;
-  flex-wrap: wrap;
-  row-gap: 10px;
+  flex-wrap: nowrap;
 }
 
 .handoff-banner {
@@ -227,11 +227,11 @@ button {
 }
 
 .brand {
-  gap: 12px;
-  min-width: 190px;
-  padding: 6px 16px 6px 6px;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 4px 9px 4px 4px;
   border: 1px solid rgba(35, 88, 145, 0.08);
-  border-radius: 22px;
+  border-radius: 15px;
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 16px 42px rgba(44, 102, 160, 0.1);
   backdrop-filter: blur(18px);
@@ -239,12 +239,12 @@ button {
 
 .brand-mark {
   display: grid;
-  width: 50px;
-  height: 50px;
+  width: 34px;
+  height: 34px;
   place-items: center;
-  border-radius: 14px;
+  border-radius: 11px;
   color: #075af2;
-  font-size: 31px;
+  font-size: 24px;
   font-weight: 950;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(218, 243, 255, 0.6)),
@@ -264,28 +264,28 @@ button {
 }
 
 .brand-text strong {
-  font-size: 23px;
+  font-size: 17px;
   font-weight: 950;
 }
 
 .brand-text small {
-  margin-top: 7px;
+  margin-top: 5px;
   color: #075af2;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 900;
 }
 
 .nav-links {
-  gap: clamp(18px, 2.8vw, 44px);
+  gap: clamp(8px, 1.1vw, 20px);
   justify-content: center;
-  flex: 1;
-  font-size: 17px;
+  flex: 1 1 auto;
+  font-size: 14px;
   font-weight: 850;
 }
 
 .nav-links a {
   position: relative;
-  padding: 10px 2px;
+  padding: 8px 2px;
   color: #07162c;
   white-space: nowrap;
 }
@@ -318,9 +318,9 @@ button {
 
 .utility-nav {
   position: relative;
-  gap: 9px;
+  gap: 4px;
+  flex: 0 0 auto;
   justify-content: flex-end;
-  max-width: 100%;
 }
 
 .currency-menu {
@@ -332,7 +332,7 @@ button {
 .pill,
 .icon-btn,
 .avatar {
-  min-height: 46px;
+  min-height: 34px;
   border: 1px solid rgba(36, 80, 122, 0.1);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.82);
@@ -344,11 +344,26 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 0 16px;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 14px;
   font-weight: 850;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.pill.icon-only {
+  position: relative;
+  width: 34px;
+  padding: 0;
+}
+
+.pill.icon-only .pill-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
 }
 
 .pill-count {
@@ -375,7 +390,7 @@ button {
 
 .icon-btn {
   position: relative;
-  width: 46px;
+  width: 34px;
   padding: 0;
   cursor: pointer;
 }
@@ -1124,27 +1139,39 @@ button {
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
-.plane-3d {
-  position: absolute;
-  right: 5%;
-  bottom: 18%;
-  z-index: 7;
-  display: block;
-  width: min(62%, 390px);
-  height: auto;
-  overflow: visible;
-  transform: rotate(-8deg) translateZ(36px);
-  transform-origin: 55% 55%;
-}
-
 .cloud {
   position: absolute;
   z-index: 4;
-  width: 176px;
+  width: 150px;
+  height: 42px;
+  border-radius: 42px;
+  background: #ffffff;
+  opacity: 0.92;
+  filter: drop-shadow(0 10px 16px rgba(38, 79, 128, 0.16));
+}
+
+/* Two rounded lobes rising off the flat base give the classic puffy cloud
+   silhouette. Opaque white + group opacity on .cloud avoids alpha seams where
+   the lobes overlap the base. */
+.cloud::before,
+.cloud::after {
+  position: absolute;
+  bottom: 0;
+  content: "";
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.cloud::before {
+  left: 14px;
+  width: 58px;
   height: 58px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  filter: blur(1px);
+}
+
+.cloud::after {
+  right: 22px;
+  width: 84px;
+  height: 84px;
 }
 
 .cloud.one {
@@ -1155,7 +1182,8 @@ button {
 .cloud.two {
   right: 110px;
   bottom: 130px;
-  width: 138px;
+  transform: scale(0.78);
+  transform-origin: right bottom;
 }
 
 .balloon {
@@ -4180,10 +4208,6 @@ button {
     transform: none;
   }
 
-  .plane-3d {
-    right: -34px;
-  }
-
   .trust-item {
     border-right: 0;
     border-bottom: 1px solid rgba(36, 80, 122, 0.1);
@@ -4197,24 +4221,16 @@ button {
 
 @media (min-width: 1181px) and (max-width: 1500px) {
   .topbar {
-    gap: 18px;
-  }
-
-  .brand {
-    min-width: 176px;
-  }
-
-  .brand-text strong {
-    font-size: 21px;
+    gap: 14px;
   }
 
   .nav-links {
-    gap: clamp(16px, 2vw, 28px);
-    font-size: 16px;
+    gap: clamp(8px, 1.1vw, 18px);
+    font-size: 14px;
   }
 
   .pill {
-    padding: 0 13px;
+    padding: 0 9px;
   }
 }
 
@@ -4470,55 +4486,6 @@ button {
     border-radius: 15px;
   }
 
-  .plane-3d {
-    right: -34px;
-    bottom: 68px;
-    width: 262px;
-    height: 74px;
-    box-shadow:
-      0 18px 34px rgba(18, 54, 99, 0.22),
-      inset 0 -10px 18px rgba(80, 101, 126, 0.08);
-  }
-
-  .plane-3d::before {
-    left: 82px;
-    top: 30px;
-    width: 124px;
-    height: 14px;
-    background:
-      repeating-linear-gradient(90deg, rgba(150, 173, 196, 0.58) 0 5px, transparent 5px 13px),
-      linear-gradient(180deg, transparent 0 46%, rgba(186, 207, 226, 0.36) 47% 54%, transparent 55%);
-  }
-
-  .plane-3d::after {
-    right: -18px;
-    bottom: 32px;
-    width: 58px;
-    height: 62px;
-  }
-
-  .plane-3d span {
-    left: 92px;
-    bottom: -18px;
-    width: 88px;
-    height: 34px;
-  }
-
-  .plane-3d span::before {
-    left: -52px;
-    top: -22px;
-    width: 142px;
-    height: 28px;
-  }
-
-  .plane-3d span::after {
-    right: 6px;
-    bottom: 4px;
-    width: 19px;
-    height: 19px;
-    border-width: 5px;
-  }
-
   .feature-benefits {
     right: 13px;
     bottom: 12px;
@@ -4655,12 +4622,6 @@ button {
   .feature-card {
     align-self: start;
     margin-top: 0;
-  }
-}
-
-@media (max-width: 999px) {
-  .plane-3d {
-    display: none;
   }
 }
 
@@ -5201,10 +5162,9 @@ button {
     font-size: 42px;
   }
 
-  /* The floating CSS plane/balloons are tuned for the large desktop card and
+  /* The floating CSS clouds/balloons are tuned for the large desktop card and
      glitch at phone size — the hero image already carries the scene, so drop
      the decorative overlays here. */
-  .plane-3d,
   .cloud,
   .balloon {
     display: none;
