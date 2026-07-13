@@ -15,7 +15,7 @@ demo-only preview that cannot touch any real system.
   via CSP, so even injected code cannot reach a host or submit a form.
 - **Safe 404** — `404.html` (Cloudflare Pages serves it for unknown paths) + an in-page
   hash-router 404 for unknown demo routes.
-- **No source-map secret exposure** — no build step, no `.map` files, no secrets.
+- **No source-map secret exposure** — the dedicated static build emits no `.map` files and no secrets.
 - **Shows** the full 40-char source SHA, the build timestamp, and `Environment: Review /
   Demo data only / Actions disabled` in a persistent banner.
 
@@ -31,16 +31,15 @@ confirmed · cancellation · refund · offline · error` (+ safe 404).
 
 ## Deploy on Cloudflare Pages (safe)
 - **Branch:** `review/cloudflare-safe-travel`
-- **Build command:** _(none)_ — this is pre-built static HTML. Do **not** run `vite build`
-  (that would produce the production app bundle, which must NOT be published as Review).
-- **Output directory:** `review-static`
-- The deployed and displayed SHA can be aligned by injecting the commit at deploy time:
-  `sed -i "s/__CF_PAGES_COMMIT_SHA__/$CF_PAGES_COMMIT_SHA/g" review-static/index.html`
-  (the `#sha` element carries `data-cf-sha="__CF_PAGES_COMMIT_SHA__"`). The visible value is the
-  source commit the demo represents.
+- **Build command:** `npm run review:build`. This copies only the dedicated static snapshot into
+  `dist-review`, injects the verified 40-character commit SHA and build timestamp, and does not
+  invoke the production application build.
+- **Output directory:** `dist-review`
+- Pass `CF_PAGES_COMMIT_SHA` to bind the displayed SHA to the deployed commit. The build refuses
+  malformed SHAs and `npm run review:scan` rejects placeholders or a mismatched rendered SHA.
 
 ## Verify locally
 ```sh
-bash review-static/scan.sh          # all scans must PASS
-python3 -m http.server -d review-static 8080   # or any static server; no backend needed
+npm run review:verify               # build + scans; all checks must PASS
+python3 -m http.server -d dist-review 8080   # or any static server; no backend needed
 ```

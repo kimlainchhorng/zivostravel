@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "review:build": "node review-static/build.mjs",
+    "review:scan": "REVIEW_STATIC_DIR=dist-review bash review-static/scan.sh",
+    "review:verify": "npm run review:build && npm run review:scan",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
