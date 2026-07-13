@@ -56,6 +56,12 @@ import {
   setBookingDraftSessionOwner,
   writeSessionBookingDrafts,
 } from "./bookingDraftStore";
+import {
+  clearSupportTicketSession,
+  readSessionSupportTickets,
+  setSupportTicketSessionOwner,
+  writeSessionSupportTickets,
+} from "./supportTicketStore";
 import "./styles.css";
 
 const engineOrigin =
@@ -1721,33 +1727,42 @@ function normalizeSupportTicket(value: unknown): SupportTicket | null {
   };
 }
 
-function readSupportTickets() {
-  if (typeof window === "undefined") {
-    return [] as SupportTicket[];
-  }
+let legacySupportTicketsPurged = false;
 
-  try {
-    const raw = window.localStorage.getItem(supportTicketsKey);
-    const parsed = raw ? JSON.parse(raw) : [];
-
-    return Array.isArray(parsed)
-      ? parsed.map(normalizeSupportTicket).filter((ticket): ticket is SupportTicket => Boolean(ticket))
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeSupportTickets(tickets: SupportTicket[]) {
-  if (typeof window === "undefined") {
+/**
+ * Delete ticket records created by releases that persisted customer and
+ * booking context. The replacement stores ticket details only in memory.
+ */
+function purgeLegacySupportTickets() {
+  if (legacySupportTicketsPurged || typeof window === "undefined") {
     return;
   }
 
+  legacySupportTicketsPurged = true;
+
   try {
-    window.localStorage.setItem(supportTicketsKey, JSON.stringify(tickets.slice(0, 12)));
-    window.dispatchEvent(new Event(supportTicketsEvent));
+    window.localStorage.removeItem(supportTicketsKey);
+    window.sessionStorage.removeItem(supportTicketsKey);
   } catch {
-    // persistence unavailable (private mode / quota) — skip without crashing the submit
+    // Storage can be unavailable in locked-down WebViews. This release never
+    // creates a replacement persisted value, so it cannot extend the exposure.
+  }
+}
+
+function readSupportTickets() {
+  purgeLegacySupportTickets();
+
+  return readSessionSupportTickets<unknown>()
+    .map(normalizeSupportTicket)
+    .filter((ticket): ticket is SupportTicket => Boolean(ticket));
+}
+
+function writeSupportTickets(tickets: SupportTicket[]) {
+  purgeLegacySupportTickets();
+  writeSessionSupportTickets(tickets);
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(supportTicketsEvent));
   }
 }
 
@@ -2094,12 +2109,15 @@ function App() {
     return subscribeToAuthorityUserChanges((userId) => {
       if (userId) {
         setBookingDraftSessionOwner(userId);
+        setSupportTicketSessionOwner(userId);
       } else {
         clearBookingDraftSession();
+        clearSupportTicketSession();
       }
 
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(savedTripsEvent));
+        window.dispatchEvent(new Event(supportTicketsEvent));
       }
     });
   }, []);
@@ -2170,11 +2188,9 @@ function App() {
     }
 
     window.addEventListener(supportTicketsEvent, refreshSupportTickets);
-    window.addEventListener("storage", refreshSupportTickets);
 
     return () => {
       window.removeEventListener(supportTicketsEvent, refreshSupportTickets);
-      window.removeEventListener("storage", refreshSupportTickets);
     };
   }, []);
 
@@ -3765,7 +3781,7 @@ function supportReasonLabel(response: SupportTicketResponse | null) {
   }
 
   if (response.reason === "local_preview") {
-    return "Saved in this browser";
+    return "Saved until this page closes";
   }
 
   return response.persisted ? "Support ticket synced" : response.reason ? formatMode(response.reason) : "Support draft ready";
@@ -3811,11 +3827,9 @@ function SupportPage({ backendStatus }: { backendStatus: BackendStatus | null })
     }
 
     window.addEventListener(supportTicketsEvent, refreshSupportTickets);
-    window.addEventListener("storage", refreshSupportTickets);
 
     return () => {
       window.removeEventListener(supportTicketsEvent, refreshSupportTickets);
-      window.removeEventListener("storage", refreshSupportTickets);
     };
   }, []);
 
@@ -3989,7 +4003,7 @@ function SupportPage({ backendStatus }: { backendStatus: BackendStatus | null })
               </span>
               <div>
                 <h2>Recent support drafts</h2>
-                <p>Local references stay visible until the Zivos Media chat handoff is completed.</p>
+                <p>Local references stay visible only in this page until the Zivos Media chat handoff is completed.</p>
               </div>
               {tickets.length ? (
                 <button className="support-clear" type="button" onClick={clearSupportDrafts}>
