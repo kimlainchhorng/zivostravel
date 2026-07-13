@@ -14,6 +14,7 @@ const securityHeaders = {
   "referrer-policy": "strict-origin-when-cross-origin",
   "permissions-policy": "camera=(), microphone=(), geolocation=()",
 };
+const REVIEW_RUNTIME_CONTRACT_ROUTE = "/.well-known/zivo-ecosystem-contract.json";
 
 type SearchKind = "flights" | "hotels" | "cars" | "bus";
 type TravelerDetails = {
@@ -492,6 +493,52 @@ function text(request: Request, body: string, contentType: string) {
   headers.set("cache-control", "public, max-age=3600");
 
   return new Response(body, { headers });
+}
+
+/**
+ * Cloudflare's normal SPA asset behavior returns index.html for a missing
+ * path. This provenance route must instead be a real JSON artifact or a 404;
+ * it can never fall through to the application shell.
+ */
+async function fetchReviewRuntimeContract(request: Request, env: Env) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method Not Allowed", {
+      status: 405,
+      headers: {
+        allow: "GET, HEAD",
+        "cache-control": "no-store",
+        ...securityHeaders,
+      },
+    });
+  }
+
+  const asset = await env.ASSETS.fetch(request);
+  const contentType = (asset.headers.get("content-type") || "").toLowerCase();
+
+  if (!asset.ok || !contentType.startsWith("application/json")) {
+    return new Response("Not Found", {
+      status: 404,
+      headers: {
+        "cache-control": "no-store",
+        ...securityHeaders,
+      },
+    });
+  }
+
+  const headers = new Headers(asset.headers);
+  for (const [key, value] of Object.entries(securityHeaders)) {
+    headers.set(key, value);
+  }
+  // This stable Review URL can be redeployed with another build SHA. Never
+  // serve a cached provenance document for the previous deployment.
+  headers.set("cache-control", "no-store");
+  headers.set("x-zivo-travel-engine", env.ZIVO_PLATFORM_ORIGIN);
+
+  return new Response(asset.body, {
+    headers,
+    status: asset.status,
+    statusText: asset.statusText,
+  });
 }
 
 function buildHandoffUrl(requestUrl: URL, env: Env, kind: SearchKind) {
@@ -1318,6 +1365,10 @@ function supportPersistenceMode(env: Env) {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === REVIEW_RUNTIME_CONTRACT_ROUTE) {
+      return fetchReviewRuntimeContract(request, env);
+    }
 
     if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
       return new Response(null, {
