@@ -5,6 +5,7 @@ export interface Env {
   ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY?: string;
   ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY?: string;
   ZIVO_AUTHORITY_SUPABASE_URL?: string;
+  ZIVO_AUTHORITY_SUPABASE_PUBLISHABLE_KEY?: string;
   ZIVO_TRAVEL_ADMIN_TOKEN?: string;
 }
 
@@ -218,12 +219,69 @@ function travelSupabaseUrl(env: Env) {
   return readEnvSecret(env.ZIVO_TRAVEL_SUPABASE_URL).replace(/\/$/, "");
 }
 
+function authoritySupabaseUrl(env: Env) {
+  return readEnvSecret(env.ZIVO_AUTHORITY_SUPABASE_URL).replace(/\/$/, "");
+}
+
+function authorityPublishableKey(env: Env) {
+  return readEnvSecret(env.ZIVO_AUTHORITY_SUPABASE_PUBLISHABLE_KEY);
+}
+
 function privilegedSupabaseKey(env: Env) {
   return readEnvSecret(env.ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY);
 }
 
 function writeSupabaseKey(env: Env) {
   return privilegedSupabaseKey(env) || readEnvSecret(env.ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY);
+}
+
+type AuthorityAuthResult =
+  | { ok: true; userId: string }
+  | { ok: false; status: 401 | 503; reason: string };
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const bookingReferencePattern = /^ztb_[a-f0-9]{12}$/;
+const idempotencyKeyPattern = /^[A-Za-z0-9_-]{16,160}$/;
+
+/**
+ * Booking records belong to the central identity authority. Verify the bearer
+ * token with that authority before the Travel service role can read or write
+ * anything. A Travel publishable key is never used as a fallback for money-
+ * adjacent booking state.
+ */
+async function requireAuthorityUser(request: Request, env: Env): Promise<AuthorityAuthResult> {
+  const authorityUrl = authoritySupabaseUrl(env);
+  const authorityKey = authorityPublishableKey(env);
+  const authorization = (request.headers.get("authorization") || "").trim();
+  if (!authorityUrl || !authorityKey) {
+    return { ok: false, status: 503, reason: "identity_authority_not_configured" };
+  }
+  if (!/^Bearer\s+\S+$/i.test(authorization)) {
+    return { ok: false, status: 401, reason: "authentication_required" };
+  }
+
+  try {
+    const response = await fetch(`${authorityUrl}/auth/v1/user`, {
+      headers: {
+        apikey: authorityKey,
+        authorization,
+        accept: "application/json",
+      },
+    });
+    if (!response.ok) return { ok: false, status: 401, reason: "invalid_authority_session" };
+    const user = await response.json() as { id?: unknown };
+    if (typeof user.id !== "string" || !uuidPattern.test(user.id)) {
+      return { ok: false, status: 401, reason: "invalid_authority_session" };
+    }
+    return { ok: true, userId: user.id };
+  } catch {
+    return { ok: false, status: 503, reason: "identity_authority_unavailable" };
+  }
+}
+
+function bookingIdempotencyKey(request: Request) {
+  const key = (request.headers.get("idempotency-key") || "").trim();
+  return idempotencyKeyPattern.test(key) ? key : null;
 }
 
 function adminApiToken(env: Env) {
@@ -840,6 +898,8 @@ function buildBookingRow(
   requestUrl: URL,
   env: Env,
   kind: SearchKind,
+  userId: string,
+  idempotencyKey: string,
   resultId?: string,
   body?: Record<string, unknown>,
 ) {
@@ -871,6 +931,7 @@ function buildBookingRow(
 
   return {
     booking_reference: bookingReference,
+    user_id: userId,
     service_type: serviceType(bookingKind),
     result_id: baseResult.id,
     result_title: result.title,
@@ -889,7 +950,7 @@ function buildBookingRow(
     checkout_url: checkoutUrl,
     sso_url: auth.toString(),
     source_host: requestUrl.host,
-    idempotency_key: bookingReference,
+    idempotency_key: idempotencyKey,
     request_payload: {
       product: bookingKind,
       query: Object.fromEntries(requestUrl.searchParams),
@@ -1040,85 +1101,98 @@ function supportResponseFromRow(
 }
 
 async function createBookingIntent(request: Request, requestUrl: URL, env: Env) {
+  const authority = await requireAuthorityUser(request, env);
+  if (!authority.ok) {
+    return { status: authority.status, payload: { error: authority.reason } };
+  }
+  const idempotencyKey = bookingIdempotencyKey(request);
+  if (!idempotencyKey) {
+    return { status: 400, payload: { error: "valid_idempotency_key_required" } };
+  }
+  const supabaseUrl = travelSupabaseUrl(env);
+  const privateKey = privilegedSupabaseKey(env);
+  if (!supabaseUrl || !privateKey) {
+    return { status: 503, payload: { error: "booking_authority_not_configured" } };
+  }
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const bodyType = typeof body.type === "string" ? body.type : null;
   const bodyResult = typeof body.resultId === "string" ? body.resultId : null;
   const kind = normalizeSearchKind(requestUrl.searchParams.get("type") || bodyType);
   const resultId = requestUrl.searchParams.get("result") || bodyResult || undefined;
-  const row = buildBookingRow(requestUrl, env, kind, resultId, body);
-  const supabaseUrl = travelSupabaseUrl(env);
-  const privateKey = privilegedSupabaseKey(env);
-  const writeKey = writeSupabaseKey(env);
-
-  if (!supabaseUrl || !writeKey) {
-    return {
-      ...bookingResponseFromRow(row, "booking_bridge_preview", false),
-      reason: "missing_supabase_write_key",
-    };
+  const row = buildBookingRow(requestUrl, env, kind, authority.userId, idempotencyKey, resultId, body);
+  const select = "id,booking_reference,status,service_type,result_id,result_title,provider,currency,subtotal,service_fee,total,review_url,checkout_url,sso_url,created_at";
+  const existingEndpoint = new URL(`${supabaseUrl}/rest/v1/zivo_travel_booking_intents`);
+  existingEndpoint.searchParams.set("select", select);
+  existingEndpoint.searchParams.set("user_id", `eq.${authority.userId}`);
+  existingEndpoint.searchParams.set("idempotency_key", `eq.${idempotencyKey}`);
+  existingEndpoint.searchParams.set("limit", "1");
+  const existingResponse = await fetch(existingEndpoint.toString(), {
+    headers: supabaseApiHeaders(privateKey, { accept: "application/json" }),
+  });
+  if (existingResponse.ok) {
+    const existing = await existingResponse.json() as Array<Record<string, unknown>>;
+    if (existing[0]) {
+      return { status: 200, payload: bookingResponseFromRow(existing[0], "supabase_booking_idempotent_replay", true) };
+    }
   }
 
-  const canReadInsertedRow = Boolean(privateKey);
-  const endpoint = canReadInsertedRow
-    ? `${supabaseUrl}/rest/v1/zivo_travel_booking_intents?select=id,booking_reference,status,service_type,result_id,result_title,provider,currency,subtotal,service_fee,total,review_url,checkout_url,sso_url,created_at`
-    : `${supabaseUrl}/rest/v1/zivo_travel_booking_intents`;
+  const endpoint = `${supabaseUrl}/rest/v1/zivo_travel_booking_intents?on_conflict=user_id,idempotency_key&select=${encodeURIComponent(select)}`;
   const response = await fetch(
     endpoint,
     {
       method: "POST",
-      headers: supabaseApiHeaders(writeKey, {
+      headers: supabaseApiHeaders(privateKey, {
         "content-type": "application/json",
-        prefer: canReadInsertedRow ? "return=representation" : "return=minimal",
+        prefer: "resolution=ignore-duplicates,return=representation",
       }),
       body: JSON.stringify(row),
     },
   );
 
   if (!response.ok) {
-    return {
-      ...bookingResponseFromRow(row, "booking_bridge_preview", false),
-      reason: "supabase_insert_failed",
-      supabaseStatus: response.status,
-    };
-  }
-
-  if (!canReadInsertedRow) {
-    return bookingResponseFromRow(row, "supabase_public_booking_intent", true);
+    return { status: 502, payload: { error: "booking_persistence_failed", supabaseStatus: response.status } };
   }
 
   const records = await response.json() as Array<Record<string, unknown>>;
-  return bookingResponseFromRow(records[0] || row, "supabase_booking_intent", true);
+  if (records[0]) {
+    return { status: 201, payload: bookingResponseFromRow(records[0], "supabase_booking_intent", true) };
+  }
+
+  // A concurrent identical request won the unique (user_id,idempotency_key)
+  // insert. Return its canonical record instead of creating a second draft.
+  const replayResponse = await fetch(existingEndpoint.toString(), {
+    headers: supabaseApiHeaders(privateKey, { accept: "application/json" }),
+  });
+  if (replayResponse.ok) {
+    const replay = await replayResponse.json() as Array<Record<string, unknown>>;
+    if (replay[0]) {
+      return { status: 200, payload: bookingResponseFromRow(replay[0], "supabase_booking_idempotent_replay", true) };
+    }
+  }
+  return { status: 502, payload: { error: "booking_idempotency_lookup_failed" } };
 }
 
-async function findBookingIntent(requestUrl: URL, env: Env) {
+async function findBookingIntent(request: Request, requestUrl: URL, env: Env) {
+  const authority = await requireAuthorityUser(request, env);
+  if (!authority.ok) {
+    return { status: authority.status, payload: { error: authority.reason } };
+  }
   const reference = requestUrl.searchParams.get("reference") || requestUrl.searchParams.get("booking_reference");
   const supabaseUrl = travelSupabaseUrl(env);
   const privateKey = privilegedSupabaseKey(env);
 
-  if (!reference) {
-    return {
-      app: "zivo-travel",
-      mode: "booking_lookup_requires_reference",
-      persisted: false,
-      bookings: [],
-      checkedAt: new Date().toISOString(),
-    };
+  if (!reference || !bookingReferencePattern.test(reference)) {
+    return { status: 400, payload: { error: "valid_booking_reference_required" } };
   }
 
   if (!supabaseUrl || !privateKey) {
-    return {
-      app: "zivo-travel",
-      mode: "booking_lookup_preview",
-      persisted: false,
-      reason: "missing_supabase_private_key",
-      reference,
-      bookings: [],
-      checkedAt: new Date().toISOString(),
-    };
+    return { status: 503, payload: { error: "booking_authority_not_configured" } };
   }
 
   const endpoint = new URL(`${supabaseUrl}/rest/v1/zivo_travel_booking_intents`);
   endpoint.searchParams.set("select", "id,booking_reference,status,service_type,result_id,result_title,provider,currency,subtotal,service_fee,total,review_url,checkout_url,sso_url,created_at");
   endpoint.searchParams.set("booking_reference", `eq.${reference}`);
+  endpoint.searchParams.set("user_id", `eq.${authority.userId}`);
   endpoint.searchParams.set("limit", "1");
 
   const response = await fetch(endpoint.toString(), {
@@ -1128,27 +1202,19 @@ async function findBookingIntent(requestUrl: URL, env: Env) {
   });
 
   if (!response.ok) {
-    return {
-      app: "zivo-travel",
-      mode: "booking_lookup_failed",
-      persisted: false,
-      reference,
-      bookings: [],
-      supabaseStatus: response.status,
-      checkedAt: new Date().toISOString(),
-    };
+    return { status: 502, payload: { error: "booking_lookup_failed", supabaseStatus: response.status } };
   }
 
   const records = await response.json() as Array<Record<string, unknown>>;
 
-  return {
+  return { status: 200, payload: {
     app: "zivo-travel",
     mode: "supabase_booking_lookup",
     persisted: true,
     reference,
     bookings: records.map(bookingRecordFromRow),
     checkedAt: new Date().toISOString(),
-  };
+  } };
 }
 
 function buildSupportTicketRow(
@@ -1389,14 +1455,16 @@ export default {
 
     if (url.pathname === "/api/travel/bookings") {
       if (request.method === "GET") {
-        return json(request, await findBookingIntent(url, env));
+        const result = await findBookingIntent(request, url, env);
+        return json(request, result.payload, result.status);
       }
 
       if (request.method !== "POST") {
         return json(request, { error: "method_not_allowed" }, 405);
       }
 
-      return json(request, await createBookingIntent(request, url, env));
+      const result = await createBookingIntent(request, url, env);
+      return json(request, result.payload, result.status);
     }
 
     if (url.pathname === "/api/travel/driver-request") {
