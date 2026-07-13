@@ -39,6 +39,15 @@ import routePhnomPenhImage from "../public/assets/route-phnom-penh-siem-reap.png
 import routeTokyoImage from "../public/assets/route-tokyo.png";
 import tripBeachImage from "../public/assets/trip-beach-preview.png";
 import bridge from "../zivo-travel-bridge.json";
+import {
+  authoritySessionUnavailableMessage,
+  consumeAuthorityHandoff,
+  getAuthorityAccessToken,
+} from "./authoritySession";
+import {
+  createAuthenticatedBookingRequest,
+  createBookingIdempotencyKey,
+} from "./bookingRequest";
 import "./styles.css";
 
 const engineOrigin =
@@ -2020,6 +2029,7 @@ function handoffStatusItems(backendStatus: BackendStatus | null) {
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
+  const [authorityHandoffError, setAuthorityHandoffError] = useState<string | null>(null);
   const [savedTripCount, setSavedTripCount] = useState(() => readSavedTrips().length);
   const [supportTicketCount, setSupportTicketCount] = useState(() => readSupportTickets().length);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -2040,6 +2050,26 @@ function App() {
   const handoffStatuses = handoffStatusItems(backendStatus);
   const zivoAdminUrl = (import.meta.env.VITE_ZIVO_ADMIN_URL as string) || "https://admin.zivosmedia.com";
   const zivosmediaUrl = (import.meta.env.VITE_ZIVOSMEDIA_URL as string) || "https://zivosmedia.com";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void consumeAuthorityHandoff()
+      .then(({ error }) => {
+        if (!cancelled && error) {
+          setAuthorityHandoffError(error);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAuthorityHandoffError("The Zivos Media sign-in handoff could not be completed. No booking draft was created.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2173,6 +2203,11 @@ function App() {
         <a className="skip-link" href="#travel-main">
           Skip to content
         </a>
+        {authorityHandoffError ? (
+          <p className="authority-handoff-error" role="alert">
+            {authorityHandoffError}
+          </p>
+        ) : null}
         {isConnectedHandoff && (
           <section className="handoff-banner" aria-label={`Connected workflow from ${handoffLabel}`}>
             <div className="handoff-copy">
@@ -4477,14 +4512,14 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
   const [bookingIntent, setBookingIntent] = useState<BookingIntentResponse | null>(null);
   const [bookingSaving, setBookingSaving] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const bookingIdempotencyKeyRef = useRef<string | null>(null);
   const [driverRequest, setDriverRequest] = useState<DriverRequestPreview | null>(null);
   const [driverRequestSaving, setDriverRequestSaving] = useState(false);
   const [traveler, setTraveler] = useState<TravelerDetails>(defaultTravelerDetails);
-  const bookingHref = bookingIntent?.booking.checkoutUrl || activeSession.checkoutUrl;
   const bookingModeLabel = bookingIntent
     ? bookingIntent.persisted
       ? "Saved in Supabase"
-      : "Preview draft"
+      : "Preview only — checkout remains unavailable"
     : "Not saved yet";
   const reviewTags = activeSession.deal
     ? [
@@ -4508,6 +4543,7 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
     setSession(fallback);
     setBookingIntent(null);
     setBookingError(null);
+    bookingIdempotencyKeyRef.current = null;
     setDriverRequest(null);
     setTraveler(defaultTravelerDetails);
 
@@ -4546,9 +4582,13 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
     return () => controller.abort();
   }, [kind, resultId, dealId, searchContext.count, searchContext.end, searchContext.from, searchContext.rooms, searchContext.start, searchContext.to, searchContext.tripType]);
 
-  async function createBookingDraft() {
+  async function createBookingDraft(): Promise<BookingIntentResponse | null> {
     if (bookingSaving) {
-      return bookingIntent || localBookingIntent(activeSession, kind, traveler);
+      return bookingIntent;
+    }
+
+    if (bookingIntent) {
+      return bookingIntent;
     }
 
     setBookingSaving(true);
@@ -4571,50 +4611,69 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
     }
 
     try {
-      const response = await fetch(`/api/travel/bookings?${params.toString()}`, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
+      const accessToken = await getAuthorityAccessToken();
+
+      if (!accessToken) {
+        throw new Error(authoritySessionUnavailableMessage());
+      }
+
+      const idempotencyKey = bookingIdempotencyKeyRef.current || createBookingIdempotencyKey();
+      bookingIdempotencyKeyRef.current = idempotencyKey;
+      const request = createAuthenticatedBookingRequest({
+        url: new URL(`/api/travel/bookings?${params.toString()}`, window.location.origin).toString(),
+        accessToken,
+        idempotencyKey,
+        body: {
           type: kind,
           resultId: activeSession.result.id,
           dealId: activeSession.deal?.id,
           traveler: travelerDetails
-        })
+        }
       });
+      const response = await fetch(request);
+
+      if (response.status === 401) {
+        throw new Error("Your Zivos Media session is no longer valid. Sign in again before creating a booking draft.");
+      }
 
       if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
-        throw new Error("Booking draft unavailable");
+        throw new Error("The secure booking service is unavailable. No booking draft or checkout was created.");
       }
 
       const intent = await response.json() as BookingIntentResponse;
+
+      if (!intent.persisted || !intent.booking?.bookingReference) {
+        throw new Error("The secure booking service did not confirm a saved draft. No checkout was opened.");
+      }
+
       saveBookingIntent(intent, travelerDetails);
       setBookingIntent(intent);
       return intent;
     } catch (error) {
-      const intent = localBookingIntent(activeSession, kind, travelerDetails);
-      saveBookingIntent(intent, travelerDetails);
-      setBookingIntent(intent);
-      setBookingError("Preview draft created");
-      return intent;
+      setBookingError(
+        error instanceof Error
+          ? error.message
+          : "The secure booking draft could not be created. No booking draft or checkout was created."
+      );
+      return null;
     } finally {
       setBookingSaving(false);
     }
   }
 
-  async function handleCheckout(event: React.MouseEvent<HTMLAnchorElement>) {
-    event.preventDefault();
-    // The sibling "Create booking draft" button disables itself while a draft is
-    // in flight; this checkout link did not. A second click during the server
-    // round-trip re-enters createBookingDraft (which short-circuits to a throwaway
-    // local intent) and navigates with a reference that diverges from the draft
-    // still being persisted. Guard re-entry so the first request wins.
+  async function handleCheckout() {
+    // The draft and checkout controls share one in-flight guard: a second
+    // interaction cannot create a divergent reference or navigate early.
     if (bookingSaving) {
       return;
     }
+
     const intent = bookingIntent || await createBookingDraft();
+
+    if (!intent?.persisted) {
+      return;
+    }
+
     const target = isEngineCheckoutUrl(intent.booking.checkoutUrl)
       ? intent.booking.checkoutUrl
       : checkoutUrl(kind, activeSession.result.id, activeSession.deal?.id);
@@ -4634,6 +4693,12 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
 
     setDriverRequestSaving(true);
     const intent = bookingIntent || await createBookingDraft();
+
+    if (!intent) {
+      setDriverRequestSaving(false);
+      return;
+    }
+
     const fallback = localDriverRequestPreview(intent.booking, activeSession, searchContext);
 
     if (!canUseTravelApi()) {
@@ -4835,10 +4900,10 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
             <span>Booking draft</span>
             <strong>{bookingIntent?.booking.bookingReference || "Not saved yet"}</strong>
             <p>{bookingModeLabel}</p>
-            <button type="button" onClick={createBookingDraft} disabled={bookingSaving}>
-              {bookingSaving ? "Saving draft" : bookingIntent ? "Refresh draft" : "Create booking draft"}
+            <button type="button" onClick={createBookingDraft} disabled={bookingSaving || Boolean(bookingIntent)}>
+              {bookingSaving ? "Saving draft" : bookingIntent ? "Booking draft saved" : "Create booking draft"}
             </button>
-            {bookingError ? <small>{bookingError}</small> : null}
+            {bookingError ? <small role="alert">{bookingError}</small> : null}
           </div>
 
           <div className="driver-request-card">
@@ -4879,15 +4944,19 @@ function BookingReview({ kind, backendStatus }: { kind: SearchKind; backendStatu
             </button>
           </div>
 
-          <a
+          <button
+            type="button"
             className="checkout-link"
-            href={bookingHref}
             onClick={handleCheckout}
-            aria-disabled={bookingSaving}
+            disabled={bookingSaving}
           >
-            {bookingSaving ? "Preparing checkout" : "Continue secure checkout"}
+            {bookingSaving
+              ? "Preparing checkout"
+              : bookingIntent?.persisted
+                ? "Continue secure checkout"
+                : "Create saved draft and continue"}
             <ArrowRight size={18} />
-          </a>
+          </button>
 
           <div className="review-actions">
             <a href={activeSession.ssoUrl}>
