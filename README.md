@@ -79,20 +79,51 @@ Keep `VITE_ZIVO_TRAVEL_USE_DEDICATED_BACKEND=false` until flight, hotel, car ren
 ## Booking Draft Persistence
 
 `/api/travel/bookings` creates a Zivo Travel booking reference before checkout handoff. The endpoint writes to
-`public.zivo_travel_booking_intents` when either a private service-role key or the safer insert-only publishable key exists in
-Cloudflare:
+`public.zivo_travel_booking_intents` only when the server-only Travel service-role key exists in Cloudflare:
 
 ```bash
-npx wrangler secret put ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY
 npx wrangler secret put ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY
 ```
 
-Without a write key, the live site stays safe and returns `booking_bridge_preview` with a checkout URL that still includes
-`booking_reference`. Both keys must stay server-side in Cloudflare only; do not add them to Vite/client env vars.
+Without a write key, the Worker returns a fail-closed configuration error. The service-role key must stay server-side in
+Cloudflare only; do not add it to Vite/client env vars.
 
 The `/trips` page stores booking drafts in the customer's browser so they can resume review or checkout immediately. When
 the Cloudflare Supabase secret is configured, `GET /api/travel/bookings?reference=ztb_...` is ready to look up the matching
 persisted intent by reference.
+
+### Central authority session requirement
+
+Persisted booking drafts are intentionally unavailable until the customer has a
+verified Zivos Media identity session. The browser never invents a preview
+after a failed production write and never sends a raw access or refresh token
+in a URL.
+
+For a Travel browser build, configure only the central authority's public
+values (never a service-role or `sb_secret_` key):
+
+```env
+VITE_ZIVO_AUTHORITY_SUPABASE_URL=https://slirphzzwcogdbkeicff.supabase.co
+VITE_ZIVO_AUTHORITY_SUPABASE_PUBLISHABLE_KEY=<central-authority-publishable-key>
+```
+
+For the Cloudflare Worker, configure the corresponding authority URL and
+publishable key plus the server-only Travel persistence key:
+
+```text
+ZIVO_AUTHORITY_SUPABASE_URL
+ZIVO_AUTHORITY_SUPABASE_PUBLISHABLE_KEY
+ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY
+```
+
+The Zivos Media authority must initiate cross-domain sign-in with its existing
+`mint-sso-handoff` flow, target `https://zivostravel.com`, and send only the
+single-use `#ott` hash to `/auth/handoff` with a root-relative `next` path.
+Travel consumes and erases that hash before redirecting, then sends the
+resulting central session as `Authorization: Bearer ...` together with an
+opaque `Idempotency-Key` on `POST /api/travel/bookings`. Deployments without
+that authority configuration fail closed with a visible message; they do not
+create a local booking preview or open checkout.
 
 ## Search Telemetry
 

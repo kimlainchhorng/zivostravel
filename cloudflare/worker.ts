@@ -469,7 +469,7 @@ function apiHeaders(request: Request) {
   if (origin && allowedApiOrigins.has(origin)) {
     headers.set("access-control-allow-origin", origin);
     headers.set("access-control-allow-methods", "GET, POST, OPTIONS");
-    headers.set("access-control-allow-headers", "content-type, authorization");
+    headers.set("access-control-allow-headers", "content-type, authorization, idempotency-key");
   }
 
   for (const [key, value] of Object.entries(securityHeaders)) {

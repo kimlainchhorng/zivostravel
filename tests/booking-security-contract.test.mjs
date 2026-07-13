@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const worker = readFileSync(new URL("../cloudflare/worker.ts", import.meta.url), "utf8");
+const client = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const migration = readFileSync(new URL("../supabase/migrations/20260712090000_travel_authenticated_booking_boundary.sql", import.meta.url), "utf8");
 
 test("booking API fails closed on missing central identity and idempotency proof", () => {
@@ -11,6 +12,7 @@ test("booking API fails closed on missing central identity and idempotency proof
   assert.match(worker, /identity_authority_not_configured/);
   assert.match(worker, /const idempotencyKey = bookingIdempotencyKey\(request\)/);
   assert.match(worker, /valid_idempotency_key_required/);
+  assert.match(worker, /content-type, authorization, idempotency-key/);
   assert.doesNotMatch(worker, /booking_bridge_preview/);
   assert.doesNotMatch(worker, /supabase_public_booking_intent/);
 });
@@ -22,4 +24,18 @@ test("booking persistence is bound to the verified owner and an atomic unique ke
   assert.match(migration, /revoke all on table public\.zivo_travel_booking_intents from anon, authenticated/);
   assert.match(migration, /drop policy if exists zivo_travel_booking_intents_public_insert/);
   assert.match(migration, /unique index if not exists zivo_travel_booking_intents_user_idempotency_unique/);
+});
+
+test("the review UI uses the authenticated request boundary and does not turn production failures into previews", () => {
+  const start = client.indexOf("async function createBookingDraft");
+  const end = client.indexOf("async function handleCheckout()", start);
+  const draftCreator = client.slice(start, end);
+
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  assert.match(draftCreator, /const accessToken = await getAuthorityAccessToken\(\)/);
+  assert.match(draftCreator, /createAuthenticatedBookingRequest\(\{/);
+  assert.match(draftCreator, /createBookingIdempotencyKey\(\)/);
+  assert.match(draftCreator, /if \(!intent\.persisted \|\| !intent\.booking\?\.bookingReference\)/);
+  assert.doesNotMatch(draftCreator.slice(draftCreator.indexOf("} catch")), /localBookingIntent/);
 });
