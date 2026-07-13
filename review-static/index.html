@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>ZIVO Travel — Review (Demo data only)</title>
+<style>
+  :root{ --bg:#f5f7fa; --card:#fff; --ink:#141a22; --mut:#5b6673; --line:#e3e7ee;
+    --brand:#2456c9; --ok:#0f7b4a; --warn:#a9701a; --pend:#7a6099; --off:#b0261e; }
+  @media (prefers-color-scheme:dark){ :root{ --bg:#0e1116; --card:#171c24; --ink:#eef2f7;
+    --mut:#9aa5b3; --line:#262d38; --brand:#7aa2f7; --ok:#3fbb7f; --warn:#e0b25a; --pend:#b79ee0; --off:#f0736a; } }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  a{color:var(--brand)}
+  .banner{position:sticky;top:0;z-index:10;background:var(--warn);color:#1a1205;font-size:.8rem;font-weight:600;
+    display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:7px 12px;border-bottom:1px solid rgba(0,0,0,.15)}
+  .banner .tag{background:rgba(0,0,0,.16);border-radius:999px;padding:1px 9px;white-space:nowrap}
+  .banner code{font-size:.92em;word-break:break-all}
+  .wrap{max-width:900px;margin:0 auto;padding:16px 14px 60px}
+  nav.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 18px}
+  nav.tabs a{font-size:.8rem;text-decoration:none;color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:4px 11px;background:var(--card)}
+  nav.tabs a.active{color:var(--brand);border-color:var(--brand);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:0 0 14px}
+  h1{font-size:1.35rem;margin:0 0 4px}
+  h2{font-size:1.05rem;margin:18px 0 8px}
+  .mut{color:var(--mut)}
+  .row{display:flex;flex-wrap:wrap;gap:10px}
+  .row>*{flex:1 1 160px}
+  label{display:block;font-size:.78rem;color:var(--mut);margin:0 0 3px}
+  input,select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit}
+  .act{display:inline-flex;align-items:center;gap:6px;background:var(--brand);color:#fff;border:0;border-radius:9px;
+    padding:10px 16px;font:inherit;font-weight:600;opacity:.5;cursor:not-allowed}
+  .act[disabled]{filter:grayscale(.2)}
+  .disabled-note{font-size:.74rem;color:var(--mut);margin-top:6px;display:flex;align-items:center;gap:5px}
+  .pill{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:999px;border:1px solid}
+  .p-pending{color:var(--pend);border-color:var(--pend)}
+  .p-confirmed{color:var(--ok);border-color:var(--ok)}
+  .p-off{color:var(--off);border-color:var(--off)}
+  .p-warn{color:var(--warn);border-color:var(--warn)}
+  .states{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+  .state-box{flex:1 1 200px;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .state-box .lbl{font-size:.72rem;color:var(--mut)}
+  .prop{display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px;margin:0 0 10px}
+  .thumb{width:64px;height:64px;border-radius:10px;flex:0 0 auto;background:linear-gradient(135deg,#9db8f0,#c9d6f5)}
+  @media (prefers-color-scheme:dark){.thumb{background:linear-gradient(135deg,#2b3a5e,#3a4a6e)}}
+  .amt{font-variant-numeric:tabular-nums;font-weight:700}
+  table{width:100%;border-collapse:collapse}
+  td{padding:6px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .foot{color:var(--mut);font-size:.75rem;border-top:1px solid var(--line);margin-top:22px;padding-top:12px}
+  .sep-note{background:rgba(122,96,153,.12);border-left:3px solid var(--pend);border-radius:0 8px 8px 0;padding:8px 12px;font-size:.85rem;margin:8px 0}
+  .big{font-size:2rem;text-align:center;margin:8px 0}
+</style>
+</head>
+<body>
+  <div class="banner" role="status" aria-live="polite">
+    <span class="tag">Environment: Review</span>
+    <span class="tag">Demo data only</span>
+    <span class="tag">Actions disabled</span>
+    <span>SHA: <code id="sha" data-cf-sha="__CF_PAGES_COMMIT_SHA__">51adb2f8d750173fbea3f1267979adaa7cfe69c0</code></span>
+    <span>Built: <code id="ts">2026-07-13T13:20:44Z</code></span>
+  </div>
+  <div class="wrap">
+    <nav class="tabs" id="tabs" aria-label="Review screens"></nav>
+    <main id="screen" tabindex="-1"><!-- rendered by review.js (inline, no network) --></main>
+    <div class="foot">
+      ZIVO Travel — Review-only static snapshot. No authentication, no production data, no Supabase,
+      no provider/booking/inventory/Wallet/API calls, no mutations. Every control is inert.
+      Unknown routes return a safe 404.
+    </div>
+  </div>
+
+<script>
+/* Inline and network-free: pure DOM rendering of deterministic fictional fixtures.
+   No remote calls of any kind; no dynamic code loading. */
+(function(){
+  "use strict";
+  var FIX = {
+    props: [
+      { id:"prop_snowbell", name:"Snowbell Hotel (demo)", city:"Phnom Penh", stars:4, refundable:true, nightly:45 },
+      { id:"prop_riverside", name:"Riverside Inn (demo)", city:"Siem Reap", stars:3, refundable:false, nightly:28 }
+    ],
+    rooms: [ {id:"std", name:"Standard room", nightly:45}, {id:"dlx", name:"Deluxe room", nightly:72} ],
+    nights: 2, currency:"USD", subtotal:90, fee:0, total:90,
+    traveler:{ name:"QA Traveler (demo)", email:"demo@example.test", adults:1 },
+    reservation:"RSV-DEMO-0001",
+    cancelPolicy:{ fullBeforeHours:48, partialPct:50 }
+  };
+  function money(n){ return "USD $" + Number(n).toFixed(2); }
+  function disabledBtn(t){ return '<button class="act" type="button" disabled aria-disabled="true" title="Disabled in Review">'+t+'</button><div class="disabled-note">○ Action disabled — Review build</div>'; }
+  function statePair(pay, book, extra){
+    function b(lbl,val,cls){ return '<div class="state-box"><div class="lbl">'+lbl+'</div><span class="pill '+cls+'">'+val+'</span></div>'; }
+    return '<div class="states">'+b("Payment state",pay.v,pay.c)+b("Booking state",book.v,book.c)+'</div>'+(extra||"");
+  }
+  function propCard(p){
+    return '<div class="prop"><div class="thumb" role="img" aria-label="'+p.name+' photo (demo placeholder)"></div>'+
+      '<div style="flex:1"><strong>'+p.name+'</strong><div class="mut">'+p.city+' · '+"★".repeat(p.stars)+
+      ' · '+(p.refundable?"Refundable":"Non-refundable")+'</div></div>'+
+      '<div style="text-align:right"><div class="mut" style="font-size:.72rem">from</div><div class="amt">'+money(p.nightly)+'</div><div class="mut" style="font-size:.72rem">/night</div></div></div>';
+  }
+
+  var SCREENS = {
+    search: { title:"Search", html:function(){
+      return '<div class="card"><h1>Where will you go next?</h1><p class="mut">Demo search — nothing is submitted.</p>'+
+      '<div class="row"><div><label for="f_city">City</label><input id="f_city" value="Phnom Penh" readonly></div>'+
+      '<div><label for="f_ci">Check-in</label><input id="f_ci" type="date" value="2026-08-01" readonly></div>'+
+      '<div><label for="f_co">Check-out</label><input id="f_co" type="date" value="2026-08-03" readonly></div>'+
+      '<div><label for="f_g">Guests</label><input id="f_g" value="1 adult" readonly></div></div>'+
+      '<div style="margin-top:12px">'+disabledBtn("Search stays")+'</div></div>'; } },
+    results: { title:"Results", html:function(){
+      return '<div class="card"><h1>2 demo stays</h1><p class="mut">Fictional inventory. Prices server-style, not live.</p>'+
+      FIX.props.map(function(p){ return propCard(p)+'<div style="margin:-4px 0 14px">'+disabledBtn("Select "+p.name)+'</div>'; }).join("")+'</div>'; } },
+    property: { title:"Property", html:function(){ var p=FIX.props[0];
+      return '<div class="card">'+propCard(p)+'<h2>About</h2><p class="mut">A calm demo property near the river. Free Wi-Fi, breakfast, pool. (Fictional.)</p>'+
+      '<h2>Amenities</h2><p class="mut">Wi-Fi · Breakfast · Pool · Airport shuttle</p>'+disabledBtn("Choose a room")+'</div>'; } },
+    room: { title:"Room selection", html:function(){
+      return '<div class="card"><h1>Choose a room</h1>'+FIX.rooms.map(function(r){
+        return '<div class="prop"><div style="flex:1"><strong>'+r.name+'</strong><div class="mut">Sleeps 2 · Free cancellation</div></div>'+
+        '<div class="amt">'+money(r.nightly)+'<div class="mut" style="font-size:.72rem">/night</div></div></div>'+
+        '<div style="margin:-4px 0 12px">'+disabledBtn("Select "+r.name)+'</div>'; }).join("")+'</div>'; } },
+    summary: { title:"Booking summary", html:function(){
+      return '<div class="card"><h1>Booking summary</h1>'+propCard(FIX.props[0])+
+      '<table><tr><td>'+money(45)+' × '+FIX.nights+' nights</td><td>'+money(FIX.subtotal)+'</td></tr>'+
+      '<tr><td>Fees</td><td>'+money(FIX.fee)+'</td></tr><tr><td><strong>Total (server-calculated)</strong></td><td><strong>'+money(FIX.total)+'</strong></td></tr></table>'+
+      '<p class="mut" style="font-size:.8rem">Amount is derived from nightly × nights, never client-supplied.</p>'+disabledBtn("Continue to payment")+'</div>'; } },
+    traveler: { title:"Traveler", html:function(){ var t=FIX.traveler;
+      return '<div class="card"><h1>Traveler details</h1><p class="mut">Fictional QA traveler — no real personal data.</p>'+
+      '<div class="row"><div><label>Full name</label><input value="'+t.name+'" readonly></div>'+
+      '<div><label>Email</label><input value="'+t.email+'" readonly></div>'+
+      '<div><label>Adults</label><input value="'+t.adults+'" readonly></div></div>'+disabledBtn("Save traveler")+'</div>'; } },
+    "payment-pending": { title:"Payment pending", html:function(){
+      return '<div class="card"><h1>Payment pending</h1>'+
+      statePair({v:"PENDING",c:"p-pending"},{v:"PENDING",c:"p-pending"})+
+      '<p class="mut">Waiting for a wallet payment confirmation. No wallet call is made in Review.</p>'+disabledBtn("Open wallet")+'</div>'; } },
+    "booking-pending": { title:"Booking pending", html:function(){
+      return '<div class="card"><h1>Booking pending</h1>'+
+      statePair({v:"CONFIRMED",c:"p-confirmed"},{v:"PENDING",c:"p-pending"},
+        '<div class="sep-note"><strong>Payment confirmed ≠ Booking confirmed.</strong> The booking stays pending until the provider confirms availability. Payment success alone never confirms a booking.</div>')+
+      disabledBtn("Awaiting provider")+'</div>'; } },
+    confirmed: { title:"Confirmed", html:function(){
+      return '<div class="card"><h1>Booking confirmed</h1>'+
+      statePair({v:"CONFIRMED",c:"p-confirmed"},{v:"CONFIRMED",c:"p-confirmed"})+
+      '<p class="mut">Reservation <strong>'+FIX.reservation+'</strong> (demo). Both payment and booking are independently confirmed.</p>'+
+      disabledBtn("View reservation")+'</div>'; } },
+    cancellation: { title:"Cancellation", html:function(){
+      return '<div class="card"><h1>Cancel booking</h1><p class="mut">Reservation '+FIX.reservation+' (demo). Policy: full refund ≥ '+FIX.cancelPolicy.fullBeforeHours+'h before check-in, else '+FIX.cancelPolicy.partialPct+'%.</p>'+
+      '<table><tr><td>Cancel ≥ 48h before</td><td>Full '+money(FIX.total)+'</td></tr><tr><td>Cancel &lt; 48h before</td><td>Partial '+money(FIX.total*FIX.cancelPolicy.partialPct/100)+'</td></tr></table>'+
+      disabledBtn("Cancel booking")+'</div>'; } },
+    refund: { title:"Refund", html:function(){
+      return '<div class="card"><h1>Refund obligation</h1>'+
+      statePair({v:"REFUNDED",c:"p-warn"},{v:"CANCELLED",c:"p-off"})+
+      '<p class="mut">A refund obligation of <span class="amt">'+money(FIX.total)+'</span> was created for reservation '+FIX.reservation+' (demo). A failed booking after a confirmed payment always creates a refund obligation.</p>'+
+      disabledBtn("Track refund")+'</div>'; } },
+    offline: { title:"Offline", html:function(){
+      return '<div class="card"><div class="big">📶</div><h1 style="text-align:center">You’re offline</h1>'+
+      '<p class="mut" style="text-align:center">Reconnect to continue. This is a demo offline state.</p><div style="text-align:center">'+disabledBtn("Retry")+'</div></div>'; } },
+    error: { title:"Error", html:function(){
+      return '<div class="card"><div class="big">⚠️</div><h1 style="text-align:center">Something went wrong</h1>'+
+      '<p class="mut" style="text-align:center">A demo error state. No request was made.</p><div style="text-align:center">'+disabledBtn("Try again")+'</div></div>'; } }
+  };
+  var ORDER = ["search","results","property","room","summary","traveler","payment-pending","booking-pending","confirmed","cancellation","refund","offline","error"];
+
+  function render404(){
+    document.getElementById("screen").innerHTML =
+      '<div class="card"><div class="big">404</div><h1 style="text-align:center">Route not found</h1>'+
+      '<p class="mut" style="text-align:center">This Review demo only serves its listed screens. <a href="#search">Go to search</a>.</p></div>';
+    markTabs(null);
+  }
+  function markTabs(active){
+    var t=document.getElementById("tabs");
+    t.innerHTML = ORDER.map(function(k){ return '<a href="#'+k+'"'+(k===active?' class="active" aria-current="page"':'')+'>'+SCREENS[k].title+'</a>'; }).join("");
+  }
+  function route(){
+    var key = (location.hash || "#search").slice(1);
+    var s = SCREENS[key];
+    if(!s){ render404(); return; }
+    document.getElementById("screen").innerHTML = s.html();
+    markTabs(key);
+    document.getElementById("screen").focus();
+  }
+  // Defense in depth: neutralize any control that somehow becomes active.
+  document.addEventListener("click", function(e){
+    var b = e.target.closest ? e.target.closest("button,[type=submit]") : null;
+    if(b){ e.preventDefault(); }
+  }, true);
+  window.addEventListener("hashchange", route);
+  markTabs("search"); route();
+})();
+</script>
+</body>
+</html>
