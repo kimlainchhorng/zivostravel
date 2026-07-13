@@ -12,6 +12,7 @@ import {
 
 const client = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const store = readFileSync(new URL("../src/bookingDraftStore.ts", import.meta.url), "utf8");
+const authoritySession = readFileSync(new URL("../src/authoritySession.ts", import.meta.url), "utf8");
 
 const sensitiveDraft = {
   bookingReference: "TRAVEL-REF-123",
@@ -61,4 +62,12 @@ test("booking reference, payment, and traveler data never use browser storage", 
   assert.doesNotMatch(draftWriter, /localStorage|sessionStorage|JSON\.stringify/);
   assert.doesNotMatch(store, /\b(?:window\.)?(?:localStorage|sessionStorage|indexedDB)\s*[.(]/);
   assert.doesNotMatch(store, /JSON\.stringify/);
+});
+
+test("authority sign-out and account switching are wired to the volatile-draft purge", () => {
+  assert.match(authoritySession, /export function subscribeToAuthorityUserChanges/);
+  assert.match(authoritySession, /currentUserId !== nextUserId/);
+  assert.match(client, /subscribeToAuthorityUserChanges\(\(userId\) =>/);
+  assert.match(client, /clearBookingDraftSession\(\)/);
+  assert.match(client, /setBookingDraftSessionOwner\(userId\)/);
 });
