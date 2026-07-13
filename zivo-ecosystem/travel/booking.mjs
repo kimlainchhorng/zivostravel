@@ -251,7 +251,23 @@ export function cancelBooking(b, plan, ctx) {
   };
 }
 
-// ------------------------------------------------------- ownership / events
+// ------------------------------------------------------- auth / ownership
+/**
+ * Authenticate a Travel request. A request MUST carry a server-validated session
+ * (e.g. Supabase getUser()) whose user is authenticated. Returns the traveler id;
+ * throws 401 otherwise. Email is never treated as an identity.
+ * @param {{ authenticated?: boolean, traveler_id?: string } | null | undefined} session
+ * @returns {string}
+ */
+export function authenticateRequest(session) {
+  if (!session || session.authenticated !== true || !session.traveler_id) {
+    const err = new Error('authentication required');
+    /** @type {any} */ (err).status = 401;
+    throw err;
+  }
+  return session.traveler_id;
+}
+
 /**
  * Cross-user guard: only the owning traveler may read/act on a booking (task 11).
  * @param {{traveler_id: string}} b @param {string} userId
@@ -259,6 +275,16 @@ export function cancelBooking(b, plan, ctx) {
 export function assertOwner(b, userId) {
   if (b.traveler_id !== userId) throw new Error('cross-user access denied');
   return true;
+}
+
+/**
+ * Reservation-ownership guard: a reservation exists only after the booking is
+ * confirmed, and may be read/acted on only by its owning traveler.
+ * @param {{traveler_id: string, reservation_id: string|null}} b @param {string} userId
+ */
+export function assertReservationOwner(b, userId) {
+  if (!b.reservation_id) throw new Error('no reservation to own');
+  return assertOwner(b, userId);
 }
 
 /**

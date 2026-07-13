@@ -15,6 +15,7 @@ import {
   searchProperties, quote, createHold, isHoldExpired, recalculatePrice,
   buildWalletHandoff, openBooking, applyPaymentConfirmed, applyProviderConfirmation,
   handleCallback, failBookingAfterPayment, cancelBooking, assertOwner, bookingEvent,
+  authenticateRequest, assertReservationOwner,
 } from './booking.mjs';
 import { validateEvent, isFinancialEvent } from '../events.mjs';
 import { UX_STATES, UX_STATE_COPY } from '../ux-terms.mjs';
@@ -145,11 +146,29 @@ test('cancellation: full refund >= policy window, partial (50%) inside it', () =
   assert.equal(partial.refund.amount_cents, Math.round(b.amount_cents * 0.5));
 });
 
+// -------------------------------------------------------------- auth
+test('auth: an unauthenticated request is rejected (401); authenticated returns traveler', () => {
+  assert.throws(() => authenticateRequest(null), /authentication required/);
+  assert.throws(() => authenticateRequest({ authenticated: false, traveler_id: 't1' }), /authentication required/);
+  assert.throws(() => authenticateRequest({ authenticated: true }), /authentication required/); // no traveler id
+  assert.equal(authenticateRequest({ authenticated: true, traveler_id: QA_TRAVELER.zivo_user_id }), QA_TRAVELER.zivo_user_id);
+});
+
 // ------------------------------------------------------------ cross-user
 test('cross-user: only the owning traveler may act on a booking', () => {
   const b = confirmedBooking(T0);
   assert.equal(assertOwner(b, QA_TRAVELER.zivo_user_id), true);
   assert.throws(() => assertOwner(b, OTHER_USER.zivo_user_id), /cross-user access denied/);
+});
+
+// --------------------------------------------------- reservation ownership
+test('reservation ownership: only exists once confirmed; cross-user denied', () => {
+  const pending = openBooking(freshHold(T0), buildWalletHandoff(freshHold(T0), { now: T0 }));
+  assert.throws(() => assertReservationOwner(pending, QA_TRAVELER.zivo_user_id), /no reservation/);
+  const b = confirmedBooking(T0);
+  assert.ok(b.reservation_id);
+  assert.equal(assertReservationOwner(b, QA_TRAVELER.zivo_user_id), true);
+  assert.throws(() => assertReservationOwner(b, OTHER_USER.zivo_user_id), /cross-user access denied/);
 });
 
 // -------------------------------------------------------------- events
