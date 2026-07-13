@@ -72,6 +72,7 @@ test("Travel accepts a lowercase-normalized full GIT_COMMIT_SHA fallback", () =>
 for (const [reason, env] of [
   ["Review mode is disabled", reviewEnv({ ZIVO_ECOSYSTEM_REVIEW_MODE: "false" })],
   ["Review mode is absent", reviewEnv({ ZIVO_ECOSYSTEM_REVIEW_MODE: undefined })],
+  ["git state is absent", reviewEnv({ ZIVO_ECOSYSTEM_GIT_DIRTY: undefined })],
   ["git state is dirty", reviewEnv({ ZIVO_ECOSYSTEM_GIT_DIRTY: "true" })],
   ["git state is unknown", reviewEnv({ ZIVO_ECOSYSTEM_GIT_DIRTY: "1" })],
   ["SHA is abbreviated", reviewEnv({ VERCEL_GIT_COMMIT_SHA: "01234567" })],
@@ -102,6 +103,17 @@ test("Travel generator writes the static artifact and removes it when a gate clo
     null,
   );
   await assert.rejects(readFile(artifactPath, "utf8"), { code: "ENOENT" });
+
+  await mkdir(path.dirname(artifactPath), { recursive: true });
+  await writeFile(artifactPath, "stale");
+  assert.equal(
+    await emitReviewRuntimeContract({
+      outDir,
+      env: reviewEnv({ ZIVO_ECOSYSTEM_GIT_DIRTY: undefined }),
+    }),
+    null,
+  );
+  await assert.rejects(readFile(artifactPath, "utf8"), { code: "ENOENT" });
 });
 
 test("Cloudflare serves the contract only as a static JSON asset and fails the SPA fallback closed", async () => {
@@ -109,6 +121,7 @@ test("Cloudflare serves the contract only as a static JSON asset and fails the S
   const baseEnv = {
     ZIVO_PLATFORM_ORIGIN: "https://zivosmedia.com",
   };
+  const contract = createReviewRuntimeContract(reviewEnv());
 
   const spaFallback = await worker.fetch(new Request(CONTRACT_ROUTE), {
     ...baseEnv,
@@ -121,9 +134,22 @@ test("Cloudflare serves the contract only as a static JSON asset and fails the S
   assert.equal(spaFallback.status, 404);
   assert.equal(spaFallback.headers.get("cache-control"), "no-store");
 
-  const contract = createReviewRuntimeContract(reviewEnv());
+  const absentCleanProvenance = await worker.fetch(new Request(CONTRACT_ROUTE), {
+    ...baseEnv,
+    ZIVO_ECOSYSTEM_REVIEW_MODE: "true",
+    ASSETS: {
+      fetch: async () => new Response(JSON.stringify(contract), {
+        headers: { "content-type": "application/json; charset=utf-8" },
+      }),
+    },
+  });
+  assert.equal(absentCleanProvenance.status, 404);
+  assert.equal(absentCleanProvenance.headers.get("cache-control"), "no-store");
+
   const response = await worker.fetch(new Request(CONTRACT_ROUTE), {
     ...baseEnv,
+    ZIVO_ECOSYSTEM_REVIEW_MODE: "true",
+    ZIVO_ECOSYSTEM_GIT_DIRTY: "false",
     ASSETS: {
       fetch: async () => new Response(JSON.stringify(contract), {
         headers: { "content-type": "application/json; charset=utf-8" },

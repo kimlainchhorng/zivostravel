@@ -1,6 +1,8 @@
 export interface Env {
   ASSETS: Fetcher;
   ZIVO_PLATFORM_ORIGIN: string;
+  ZIVO_ECOSYSTEM_REVIEW_MODE?: string;
+  ZIVO_ECOSYSTEM_GIT_DIRTY?: string;
   ZIVO_TRAVEL_SUPABASE_URL?: string;
   ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY?: string;
   ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY?: string;
@@ -506,6 +508,22 @@ async function fetchReviewRuntimeContract(request: Request, env: Env) {
       status: 405,
       headers: {
         allow: "GET, HEAD",
+        "cache-control": "no-store",
+        ...securityHeaders,
+      },
+    });
+  }
+
+  // This is an attestation route, so absence is not equivalent to a clean
+  // build. Keep the static asset unreachable unless the deployed Worker has
+  // explicit Review and clean-state provenance as well.
+  if (
+    env.ZIVO_ECOSYSTEM_REVIEW_MODE !== "true" ||
+    env.ZIVO_ECOSYSTEM_GIT_DIRTY !== "false"
+  ) {
+    return new Response("Not Found", {
+      status: 404,
+      headers: {
         "cache-control": "no-store",
         ...securityHeaders,
       },

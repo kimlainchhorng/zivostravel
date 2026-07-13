@@ -15,9 +15,8 @@ export function getBuildSha(env = process.env) {
   return null;
 }
 
-function isKnownClean(value) {
-  if (value == null || value.trim() === "") return true;
-  return value.trim().toLowerCase() === "false";
+function isExplicitlyClean(value) {
+  return value === "false";
 }
 
 /**
@@ -26,7 +25,7 @@ function isKnownClean(value) {
  */
 export function createReviewRuntimeContract(env = process.env) {
   if (env.ZIVO_ECOSYSTEM_REVIEW_MODE !== "true") return null;
-  if (!isKnownClean(env.ZIVO_ECOSYSTEM_GIT_DIRTY)) return null;
+  if (!isExplicitlyClean(env.ZIVO_ECOSYSTEM_GIT_DIRTY)) return null;
 
   const buildSha = getBuildSha(env);
   if (!buildSha) return null;
