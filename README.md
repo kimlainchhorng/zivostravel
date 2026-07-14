@@ -78,21 +78,32 @@ Keep `VITE_ZIVO_TRAVEL_USE_DEDICATED_BACKEND=false` until flight, hotel, car ren
 
 ## Booking Draft Persistence
 
-`/api/travel/bookings` creates a Zivo Travel booking reference before checkout handoff. The endpoint writes to
-`public.zivo_travel_booking_intents` when either a private service-role key or the safer insert-only publishable key exists in
-Cloudflare:
+`/api/travel/bookings` creates payment-adjacent state only after the central Zivos Media authority has verified the
+customer's Bearer session. The Worker binds every stored draft to that verified user and requires a client-generated,
+stable `Idempotency-Key`; a retry returns the same canonical draft instead of adding another booking reference.
+
+Configure the browser with only the central authority's public credentials:
 
 ```bash
-npx wrangler secret put ZIVO_TRAVEL_SUPABASE_PUBLISHABLE_KEY
-npx wrangler secret put ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY
+VITE_ZIVO_AUTHORITY_SUPABASE_URL=https://<authority-project>.supabase.co
+VITE_ZIVO_AUTHORITY_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-Without a write key, the live site stays safe and returns `booking_bridge_preview` with a checkout URL that still includes
-`booking_reference`. Both keys must stay server-side in Cloudflare only; do not add them to Vite/client env vars.
+Configure the Worker with the Travel server credential and the authority public key:
 
-The `/trips` page stores booking drafts in the customer's browser so they can resume review or checkout immediately. When
-the Cloudflare Supabase secret is configured, `GET /api/travel/bookings?reference=ztb_...` is ready to look up the matching
-persisted intent by reference.
+```bash
+npx wrangler secret put ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY
+npx wrangler secret put ZIVO_AUTHORITY_SUPABASE_PUBLISHABLE_KEY
+```
+
+`ZIVO_TRAVEL_SUPABASE_SERVICE_ROLE_KEY` is server-only and must never appear in Vite env vars or source. The authority
+publishable key is intentionally public, but must be rejected if it is accidentally replaced by a service/secret key.
+Without the verified authority session or either required Worker value, the endpoint returns `401` or `503`; it never
+returns a synthetic saved draft or opens checkout.
+
+The `/trips` page may retain a local review preview, but checkout requires a confirmed persisted draft. `GET
+/api/travel/bookings?reference=ztb_...` requires the same central authority session and scopes the lookup to its verified
+owner, so a guessed reference cannot reveal another customer's booking.
 
 ## Search Telemetry
 
