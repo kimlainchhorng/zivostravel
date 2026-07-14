@@ -3973,11 +3973,28 @@ button {
   justify-content: center;
   gap: 14px;
   margin-top: 14px;
+  border: 0;
   border-radius: 15px;
   color: #ffffff;
+  cursor: pointer;
   font-weight: 900;
   background: linear-gradient(135deg, #126bff, #064ce8);
   box-shadow: 0 18px 38px rgba(8, 86, 236, 0.22);
+}
+
+.checkout-link:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.authority-handoff-error {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(182, 48, 48, 0.24);
+  border-radius: 12px;
+  color: #8e2222;
+  font-weight: 750;
+  background: #fff3f3;
 }
 
 .workflow-headline {

@@ -7,10 +7,12 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "test": "tsx --test test/**/*.test.ts",
     "agent:deepseek": "node scripts/agents/deepseek-runner.mjs",
     "agent:mimo": "node scripts/agents/mimo-runner.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.110.2",
     "@vitejs/plugin-react": "^5.0.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "playwright": "^1.60.0"
+    "playwright": "^1.60.0",
+    "tsx": "4.20.6"
   }
 }
