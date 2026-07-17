@@ -2099,7 +2099,7 @@ function BookingReturnPage({
   const [cancelRequest, setCancelRequest] = useState<SupportTicketResponse | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
-  const refreshServerStatus = useCallbackStatus(reference, setRecord, setServerStatus, setLoadState);
+  const refreshServerStatus = makeStatusRefresher(reference, setRecord, setServerStatus, setLoadState);
 
   useEffect(() => {
     if (headingRef.current) headingRef.current.focus();
@@ -2413,9 +2413,9 @@ function bookingStatusHeadline(
   return "Awaiting payment confirmation";
 }
 
-// Small hook factory so the "Check status" button can re-run the same reconcile the effect
-// runs on mount, without duplicating the fetch/label wiring.
-function useCallbackStatus(
+// Factory (NOT a React hook) so the "Check status" button can re-run the same reconcile the
+// mount effect runs, without duplicating the fetch/label wiring.
+function makeStatusRefresher(
   reference: string,
   setRecord: React.Dispatch<React.SetStateAction<SavedTrip | null>>,
   setServerStatus: React.Dispatch<React.SetStateAction<string | null>>,

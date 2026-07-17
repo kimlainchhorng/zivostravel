@@ -49,10 +49,14 @@ write the authoritative row.
 
 **Cross-writing rule (enforced):** the same authoritative booking or payment row is
 **never** written independently in both databases. The travel booking-intent row is a
-**distinct, non-authoritative** record (`zivo_travel_booking_intents`, always
-`user_id=null`, status pinned to `pending_checkout`) that references the journey by
-`booking_reference` and hands the customer to the authority for the real booking. Sync
-happens only through explicit, identified events (below), keyed by stable IDs.
+**distinct, non-authoritative** record (`zivo_travel_booking_intents`) that references the
+journey by `booking_reference` and hands the customer to the authority for the real
+booking. In today's guest-bridge mode the Worker writes it with `user_id=null` and the
+anon-insert policy pins `status='pending_checkout'` (the table's own column default is
+`draft`, and its full lifecycle is per §4). The table's owner-read RLS (`user_id =
+auth.uid()`) and `user_id` index are **forward-looking scaffolding** for the authenticated
+cutover (PR #2), inert for guest rows today. Sync happens only through explicit, identified
+events (below), keyed by stable IDs.
 
 ---
 
@@ -115,6 +119,12 @@ must be `>= 50` before a live charge (Stripe minimum). The browser-submitted amo
 minus validated promo inside `create_bus_booking`, and the PaymentIntent reads
 `bus_bookings.amount_cents` from the DB.
 
+**Currency normalization:** the canonical form is **lowercase** ISO 4217 (`usd`/`khr`/`thb`),
+matching the authority (`bus_bookings.currency` defaults `usd`) and Stripe. The travel
+staging table `zivo_travel_booking_intents.currency` defaults to uppercase `'USD'`, so any
+value mapped from a travel intent into this contract **must be lower-cased at the boundary**
+before `validateBusBookingContract` (which accepts lowercase only).
+
 ---
 
 ## 4. Lifecycle state machines
@@ -141,6 +151,14 @@ Allowed: `pending→authorized`, `pending→failed`, `authorized→captured`,
 `authorized→voided`, `authorized→failed`, `captured→refunded`. Idempotent replays of the
 current state are no-ops (return ok).
 
+> ⚠️ **`voided` is a deploy dependency.** The *applied* (2026-06-01) `bus_bookings`
+> `payment_status` CHECK is `('pending','authorized','captured','failed','refunded')` — it
+> does **not** yet permit `voided`. `capture-bus-payment`'s refund/void branch writes
+> `voided`, so until migration **`20260717120000_bus_payment_voided_and_webhook_events.sql`**
+> is applied to the authoritative project, voiding an uncaptured authorization raises a CHECK
+> violation (Stripe auth cancelled, booking left in `hold`/`authorized`). Apply that migration
+> **before** the void/refund leg is exercised in any environment.
+
 **Booking-intent status** (travel `zivo_travel_booking_intents.status`): `draft →
 pending_checkout → checkout_handoff → paid | cancelled | expired`. The travel intent is
 **never** shown as "Confirmed" to the customer unless the authority reports a `confirmed`
@@ -163,7 +181,15 @@ booking; a merely-persisted intent reads "Draft".
 
 ---
 
-## 6. Error codes (stable, both boundaries)
+## 6. Error codes
+
+These stable codes are the target for the **Travel boundary** (Worker + `bookingContract.ts`
+`ERROR_CODES`), returned in the JSON `error` field. **Current state:** the authority bus
+Edge Functions (`create-bus-payment-intent`, `capture-bus-payment`) still return
+human-readable messages (`"Unauthorized"`, `"Forbidden"`, `"Booking not found"`, …) with the
+**matching HTTP status** shown below; converging those to the stable codes is a tracked
+follow-up. Consumers should therefore branch on **HTTP status** at the authority boundary and
+on the stable `error` code at the Travel boundary.
 
 | Code | HTTP | Meaning |
 |---|---|---|
@@ -203,3 +229,9 @@ booking; a merely-persisted intent reads "Draft".
   defines `stripe-bus-webhook` as the provider-event confirmation/reconciliation path
   (companion to interim operator capture); defines the travel-side authenticated,
   idempotent `booking.cancel_requested` handoff.
+- **v1.1 (2026-07-17):** accuracy corrections after an adversarial contract-vs-code review —
+  §3 currency lower-casing note; §4 explicit `voided` deploy-dependency warning (applied
+  CHECK does not yet permit it); §6 scoped to Travel boundary with a note that authority Edge
+  Functions currently return human-readable messages + matching HTTP status; §1 clarifies the
+  travel intent is `user_id=null`/`pending_checkout` only in guest-bridge mode (owner-read RLS
+  is forward-looking scaffolding). No behavioral change.
