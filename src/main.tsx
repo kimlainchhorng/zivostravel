@@ -4651,6 +4651,11 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
   const { currency } = useCurrency();
   const searchContext = useMemo(() => readSearchContext(kind), [kind]);
   const [payload, setPayload] = useState<ResultsPayload>(() => fallbackResults(kind));
+  // Honest live-availability state: the static catalog is always shown as a floor, but the
+  // customer is told when we are checking, when live data is in, and when the live lookup
+  // failed (with Retry) — so a backend outage is never silently invisible.
+  const [fetchState, setFetchState] = useState<"idle" | "loading" | "live" | "error">("idle");
+  const [reloadKey, setReloadKey] = useState(0);
   const activePayload = payload.product === kind ? payload : fallbackResults(kind);
   const activeTab = searchTabs.find((tab) => tab.id === kind) || searchTabs[0];
   const Icon = activeTab.icon;
@@ -4665,9 +4670,11 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
     setPayload(fallback);
 
     if (!canUseTravelApi()) {
+      setFetchState("idle");
       return () => controller.abort();
     }
 
+    setFetchState("loading");
     const params = resultRequestParams(kind, searchContext);
 
     fetch(`/api/travel/results?${params.toString()}`, {
@@ -4681,15 +4688,19 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
 
         return response.json() as Promise<ResultsPayload>;
       })
-      .then((results) => setPayload(results))
+      .then((results) => {
+        setPayload(results);
+        setFetchState("live");
+      })
       .catch(() => {
         if (!controller.signal.aborted) {
           setPayload(fallback);
+          setFetchState("error");
         }
       });
 
     return () => controller.abort();
-  }, [kind, searchContext.count, searchContext.end, searchContext.from, searchContext.rooms, searchContext.start, searchContext.to, searchContext.tripType]);
+  }, [kind, reloadKey, searchContext.count, searchContext.end, searchContext.from, searchContext.rooms, searchContext.start, searchContext.to, searchContext.tripType]);
 
   return (
     <section className="results-page" aria-label={`${activeTab.label} results`}>
@@ -4727,8 +4738,47 @@ function ResultsPage({ kind, backendStatus }: { kind: SearchKind; backendStatus:
         ))}
       </div>
 
+      {fetchState === "loading" ? (
+        <div className="results-availability loading" role="status" aria-live="polite">
+          <Repeat2 size={15} className="spin" />
+          Checking live availability…
+        </div>
+      ) : fetchState === "error" ? (
+        <div className="results-availability error" role="status" aria-live="polite">
+          <span>Couldn&apos;t reach live availability — showing saved options.</span>
+          <button type="button" onClick={() => setReloadKey((key) => key + 1)}>
+            <Repeat2 size={15} /> Retry
+          </button>
+        </div>
+      ) : fetchState === "live" ? (
+        <div className="results-availability live" role="status" aria-live="polite">
+          <BadgeCheck size={15} /> Live availability updated
+        </div>
+      ) : null}
+
       <div className="results-layout">
         <div className="results-list" aria-label={`${activeTab.label} options`}>
+          {displayResults.length === 0 ? (
+            <div className="results-empty" role="status">
+              <MapPinned size={22} />
+              <h2>No options for this route or date</h2>
+              <p>Try a different date or nearby city, or adjust your search.</p>
+              <div className="results-empty-actions">
+                <a className="booking-return-cta" href={localUrl("/")}>
+                  Adjust search <ArrowRight size={16} />
+                </a>
+                {canUseTravelApi() ? (
+                  <button
+                    type="button"
+                    className="booking-return-ghost"
+                    onClick={() => setReloadKey((key) => key + 1)}
+                  >
+                    <Repeat2 size={16} /> Retry
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           {displayResults.map((result) => (
             <article key={result.id} className="result-card">
               <div className="result-media">
