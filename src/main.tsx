@@ -49,6 +49,10 @@ const engineOrigin =
 const chatOrigin =
   import.meta.env.VITE_ZIVO_CHAT_ORIGIN || "https://zivoschat.com";
 
+const zivoWalletOrigin = normalizeOrigin(
+  import.meta.env.VITE_ZIVO_WALLET_URL || "https://zivopay.com"
+);
+
 type SearchKind = "flights" | "hotels" | "cars" | "bus";
 type CurrencyCode = "USD" | "KHR" | "THB";
 type TripType = "Round trip" | "One way" | "Multi-city";
@@ -394,6 +398,7 @@ const adminTokenKey = "zivo-travel-admin-token";
 
 const zivoApps = [
   { key: "media", name: "Zivosmedia", tagline: "Social, feed & super-app", origin: "https://zivosmedia.com" },
+  { key: "wallet", name: "ZIVO Wallet", tagline: "Balances, refunds & payouts", origin: zivoWalletOrigin },
   { key: "travel", name: "Zivo Travel", tagline: "Flights, hotels, cars & bus", origin: "https://zivostravel.com" },
   { key: "driver", name: "Zivo Driver", tagline: "Drive & earn", origin: "https://zivodriver.com" },
   { key: "business", name: "Zivo Business", tagline: "Business profile & billing", origin: "https://zivobusiness.com" },
@@ -745,6 +750,31 @@ const resultCatalog: Record<SearchKind, Omit<ResultItem, "checkoutUrl">[]> = {
 
 function engineUrl(path: string) {
   return new URL(path, engineOrigin).toString();
+}
+
+type HandoffParams = Record<string, string | number | boolean | null | undefined>;
+
+function normalizeOrigin(origin: string) {
+  const trimmed = origin.trim();
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return withProtocol.replace(/\/+$/, "");
+}
+
+function addHandoffParams(url: URL, params: HandoffParams) {
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    url.searchParams.set(key, String(value));
+  });
+}
+
+function zivoWalletUrl(path = "/wallet", params: HandoffParams = {}) {
+  const url = new URL(path, `${zivoWalletOrigin}/`);
+  addHandoffParams(url, {
+    source: "zivostravel",
+    app: "zivo-travel",
+    ...params
+  });
+  return url.toString();
 }
 
 // The booking checkoutUrl is normally built locally via engineUrl (always the
@@ -1328,9 +1358,9 @@ function fallbackReviewSession(kind: SearchKind, resultId?: string | null, dealI
     total,
     reviewUrl: result.reviewUrl || reviewUrl(kind, result.id),
     checkoutUrl: result.checkoutUrl,
-    paymentUrl: engineUrl(bridge.routing.paymentMethods),
-    walletUrl: engineUrl(bridge.routing.wallet),
-    payoutUrl: engineUrl(`${bridge.routing.wallet}?tab=payouts`),
+    paymentUrl: zivoWalletUrl("/wallet/add-money", { product: sessionKind, flow: "topup" }),
+    walletUrl: zivoWalletUrl("/wallet", { product: sessionKind }),
+    payoutUrl: zivoWalletUrl("/wallet/history", { product: sessionKind, view: "payouts" }),
     ssoUrl: engineUrl(
       `${bridge.routing.authHandoff}?app=zivo-travel&redirect=${encodeURIComponent(
         new URL(result.checkoutUrl).pathname + new URL(result.checkoutUrl).search
@@ -1348,8 +1378,8 @@ function fallbackReviewSession(kind: SearchKind, resultId?: string | null, dealI
       { label: "Booking source", value: "Zivo Travel" },
       ...(deal ? [{ label: "Package", value: `${deal.save} bundle` }] : []),
       { label: "Checkout authority", value: "Zivos Media" },
-      { label: "Payment rail", value: "Saved methods" },
-      { label: "Payout record", value: "Wallet ledger" }
+      { label: "Payment rail", value: "ZIVO Wallet + saved methods" },
+      { label: "Payout record", value: "ZIVO Wallet ledger" }
     ]
   };
 }
@@ -1791,9 +1821,9 @@ function fallbackWalletSummary(): WalletSummaryPayload {
       { id: "payout-reward", label: "Reward credit", amount: 42, status: "Available", eta: "Now" }
     ],
     links: {
-      wallet: engineUrl(bridge.routing.wallet),
-      paymentMethods: engineUrl(bridge.routing.paymentMethods),
-      payout: engineUrl(`${bridge.routing.wallet}?tab=payouts`),
+      wallet: zivoWalletUrl("/wallet", { return_path: "/wallet" }),
+      paymentMethods: zivoWalletUrl("/wallet/add-money", { return_path: "/wallet", flow: "topup" }),
+      payout: zivoWalletUrl("/wallet/history", { return_path: "/wallet", view: "payouts" }),
       support: engineUrl(bridge.routing.support)
     },
     checkedAt: new Date().toISOString()
@@ -1943,9 +1973,9 @@ function fallbackQuote(kind: SearchKind): QuotePayload {
     provider: "zivosmedia",
     mode: "local_bridge",
     checkoutUrl: engineUrl(`/travel/checkout?${params.toString()}`),
-    paymentUrl: engineUrl(bridge.routing.paymentMethods),
-    walletUrl: engineUrl(bridge.routing.wallet),
-    payoutUrl: engineUrl(`${bridge.routing.wallet}?tab=payouts`),
+    paymentUrl: zivoWalletUrl("/wallet/add-money", { product: kind, flow: "topup" }),
+    walletUrl: zivoWalletUrl("/wallet", { product: kind }),
+    payoutUrl: zivoWalletUrl("/wallet/history", { product: kind, view: "payouts" }),
     ssoUrl: engineUrl(`${bridge.routing.authHandoff}?app=zivo-travel&redirect=${encodeURIComponent(`/travel/checkout?${params.toString()}`)}`),
     steps: [
       { label: "Search", status: "ready" },
@@ -2420,7 +2450,7 @@ function App() {
                 <ShieldCheck size={17} />
                 <span>
                   <b>{backendStatus?.walletSummary === "bridge_ready" ? "Wallet bridge ready" : "Wallet preview"}</b>
-                  <small>Payments and wallet hand off to Zivos Media</small>
+                  <small>Payments and wallet hand off to ZIVO Wallet</small>
                 </span>
               </a>
               <a href={localUrl("/support")}>
@@ -3436,7 +3466,7 @@ function walletReasonLabel(summary: WalletSummaryPayload) {
     return "Local payment preview";
   }
 
-  return summary.reason ? formatMode(summary.reason) : "Zivos Media handoff ready";
+  return summary.reason ? formatMode(summary.reason) : "ZIVO Wallet handoff ready";
 }
 
 function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
@@ -3446,7 +3476,7 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
   const [loading, setLoading] = useState(false);
   const activeSummary = summary.methods.length ? summary : fallbackWalletSummary();
   const bridgeLabel = backendStatus?.mode === "cloudflare_bridge" ? "Live bridge" : "Local preview";
-  const walletLabel = activeSummary.persisted ? "Wallet bridge" : "Preview wallet";
+  const walletLabel = activeSummary.persisted ? "ZIVO Wallet bridge" : "Preview wallet";
   const totalFunds = activeSummary.available + activeSummary.pending + activeSummary.rewards;
 
   useEffect(() => {
@@ -3497,7 +3527,7 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
             <WalletCards size={25} />
           </span>
           <h1>Travel wallet</h1>
-          <p>Payments, payout timing, cash-out status, and checkout handoffs stay connected with Zivos Media.</p>
+          <p>Payments, payout timing, refunds, and checkout handoffs stay connected with ZIVO Wallet.</p>
         </div>
         <div className="review-status">
           <span>{bridgeLabel}</span>
@@ -3543,7 +3573,7 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
               <div className="wallet-panel-head">
                 <div>
                   <h2>Payment methods</h2>
-                  <p>Choose how customers pay before the Zivos Media checkout handoff.</p>
+                  <p>Choose how customers pay before the ZIVO Wallet checkout handoff.</p>
                 </div>
                 <a href={activeSummary.links.paymentMethods}>
                   Manage
@@ -3570,7 +3600,7 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
               <div className="wallet-panel-head">
                 <div>
                   <h2>Payouts</h2>
-                  <p>Cash-out and settlement records stay visible before final wallet sync.</p>
+                  <p>Cash-out and settlement records stay visible before final ZIVO Wallet sync.</p>
                 </div>
                 <a href={activeSummary.links.payout}>
                   Cash out
@@ -3599,7 +3629,7 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
 
         <aside className="wallet-aside">
           <h2>Wallet workflow</h2>
-          <p>Zivo Travel keeps the booking context visible, then sends protected payment, wallet, payout, and support actions to Zivos Media.</p>
+          <p>Zivo Travel keeps the booking context visible, then sends protected payment, wallet, payout, and support actions to ZIVO Wallet.</p>
           <div className="wallet-chain">
             <span>
               <ReceiptText size={16} />
@@ -3623,7 +3653,7 @@ function WalletPage({ backendStatus }: { backendStatus: BackendStatus | null }) 
             {loading ? "Refreshing" : "Refresh wallet"}
           </button>
           <a href={activeSummary.links.wallet}>
-            Open Zivos Media wallet
+            Open ZIVO Wallet
             <ArrowRight size={16} />
           </a>
           <a href={localUrl("/support")}>
@@ -4221,8 +4251,8 @@ function OpsPage({ backendStatus }: { backendStatus: BackendStatus | null }) {
               Bundle deals
               <ArrowRight size={16} />
             </a>
-            <a href={engineUrl(bridge.routing.wallet)}>
-              Zivos Media wallet
+            <a href={zivoWalletUrl("/wallet", { return_path: "/ops" })}>
+              ZIVO Wallet
               <ArrowRight size={16} />
             </a>
           </div>
