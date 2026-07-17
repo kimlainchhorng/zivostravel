@@ -39,6 +39,11 @@ import routePhnomPenhImage from "../public/assets/route-phnom-penh-siem-reap.png
 import routeTokyoImage from "../public/assets/route-tokyo.png";
 import tripBeachImage from "../public/assets/trip-beach-preview.png";
 import bridge from "../zivo-travel-bridge.json";
+import {
+  BOOKING_CONTRACT_VERSION,
+  customerBookingLabel,
+  type BookingStatus
+} from "./contract/bookingContract";
 import "./styles.css";
 
 const engineOrigin =
@@ -862,6 +867,18 @@ function currentReviewKind(): SearchKind | null {
   }
 
   return "flights";
+}
+
+// The post-checkout return routes. Zivos Media checkout redirects the customer back to
+// /booking/success or /booking/cancel with ?reference=. These pages read the REAL booking
+// status from the server (never assume success from the redirect alone).
+function currentBookingReturn(): "success" | "cancel" | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  if (window.location.pathname === "/booking/success") return "success";
+  if (window.location.pathname === "/booking/cancel") return "cancel";
+  return null;
 }
 
 function isTripsRoute() {
@@ -2048,6 +2065,383 @@ function handoffStatusItems(backendStatus: BackendStatus | null) {
   ];
 }
 
+function readReferenceParam(): string {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return (params.get("reference") || params.get("booking_reference") || "").trim();
+}
+
+function findSavedTripByReference(reference: string): SavedTrip | null {
+  if (!reference) return null;
+  return readSavedTrips().find((trip) => trip.bookingReference === reference) || null;
+}
+
+// Map a Travel/authority status string onto the authority booking lifecycle used by the
+// shared contract. Anything that is not an explicit confirmed/cancelled/paid signal maps
+// to null, so customerBookingLabel() will NEVER render "Confirmed" from a mere handoff.
+function mapTravelStatusToAuthority(status: string | null | undefined): BookingStatus | null {
+  const value = (status || "").toLowerCase();
+  if (value === "confirmed" || value === "paid" || value === "captured") return "confirmed";
+  if (value === "cancelled" || value === "canceled" || value === "refunded" || value === "voided") {
+    return "cancelled";
+  }
+  return null;
+}
+
+type ReturnLoadState = "loading" | "loaded" | "not_found";
+
+function BookingReturnPage({
+  outcome,
+  backendStatus
+}: {
+  outcome: "success" | "cancel";
+  backendStatus: BackendStatus | null;
+}) {
+  const reference = readReferenceParam();
+  const [record, setRecord] = useState<SavedTrip | null>(() => findSavedTripByReference(reference));
+  const [serverStatus, setServerStatus] = useState<string | null>(null);
+  const [loadState, setLoadState] = useState<ReturnLoadState>(reference ? "loading" : "not_found");
+  const [refreshing, setRefreshing] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+
+  // Cancellation / refund request (recorded as a support request; the refund itself is
+  // executed by Zivos Media — we never claim a refund succeeded here).
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [cancelRequest, setCancelRequest] = useState<SupportTicketResponse | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const refreshServerStatus = useCallbackStatus(reference, setRecord, setServerStatus, setLoadState);
+
+  useEffect(() => {
+    if (headingRef.current) headingRef.current.focus();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!reference) {
+      setLoadState("not_found");
+      return;
+    }
+    // Instant offline paint from the saved draft, then reconcile with the server.
+    const local = findSavedTripByReference(reference);
+    if (local) setRecord(local);
+
+    if (!canUseTravelApi()) {
+      setLoadState(local ? "loaded" : "not_found");
+      return;
+    }
+
+    (async () => {
+      const result = await fetchServerBooking(reference);
+      if (cancelled) return;
+      if (result.status) setServerStatus(result.status);
+      if (result.record) setRecord((prev) => prev || result.record);
+      setLoadState(local || result.record ? "loaded" : "not_found");
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reference]);
+
+  const authorityStatus = mapTravelStatusToAuthority(serverStatus || record?.status);
+  const label = customerBookingLabel({ authorityStatus, intentPersisted: Boolean(record?.persisted) });
+  const currency = record?.currency || "USD";
+
+  async function submitCancellationRequest(event: React.FormEvent) {
+    event.preventDefault();
+    if (cancelSubmitting) return;
+    const reason = cancelReason.trim();
+    if (reason.length < 4) {
+      setCancelError("Please tell us briefly why you want to cancel or request a refund.");
+      return;
+    }
+    setCancelSubmitting(true);
+    setCancelError(null);
+
+    const form: SupportForm = {
+      name: record?.traveler?.name || "Zivo Travel customer",
+      email: record?.traveler?.email || "",
+      bookingReference: reference,
+      topic: "payment",
+      message: `Cancellation / refund request for ${reference}: ${reason}`
+    };
+
+    if (!canUseTravelApi()) {
+      const local = localSupportTicket(form);
+      saveSupportTicket(local);
+      setCancelRequest(local);
+      setCancelSubmitting(false);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/travel/support", {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify(form)
+      });
+      if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+        throw new Error("Support bridge unavailable");
+      }
+      const ticket = (await response.json()) as SupportTicketResponse;
+      saveSupportTicket(ticket);
+      setCancelRequest(ticket);
+    } catch {
+      const local = localSupportTicket(form);
+      saveSupportTicket(local);
+      setCancelRequest(local);
+      setCancelError("Saved locally as a preview — Zivos Media will receive it on reconnect.");
+    } finally {
+      setCancelSubmitting(false);
+    }
+  }
+
+  const heading =
+    outcome === "success"
+      ? "Payment sent to Zivos Media"
+      : "Checkout was cancelled";
+  const lede =
+    outcome === "success"
+      ? "We handed your payment to the Zivos Media checkout authority. This page shows the real booking status — a seat is only confirmed once Zivos Media reports it, never from this redirect alone."
+      : "No payment was taken. Your booking draft is preserved so you can resume or ask for help.";
+
+  return (
+    <section className="booking-return" aria-label={`Booking ${outcome}`}>
+      <div className="booking-return-head">
+        <a className="back-link" href={localUrl("/")}>
+          <ChevronLeft size={16} /> Back to Zivo Travel
+        </a>
+        <span className={`booking-return-badge tone-${outcome}`}>
+          {outcome === "success" ? <ShieldCheck size={15} /> : <Clock3 size={15} />}
+          {outcome === "success" ? "Payment handed off" : "Checkout cancelled"}
+        </span>
+      </div>
+
+      <h1 className="booking-return-title" tabIndex={-1} ref={headingRef}>
+        {heading}
+      </h1>
+      <p className="booking-return-lede">{lede}</p>
+
+      {loadState === "not_found" ? (
+        <div className="booking-return-card" role="status">
+          <p>
+            We couldn&apos;t find a booking for{" "}
+            <strong>{reference || "this link"}</strong> on this device.
+          </p>
+          <div className="booking-return-actions">
+            <a className="booking-return-cta" href={localUrl("/trips")}>
+              Open My Trips <ArrowRight size={16} />
+            </a>
+            <a className="booking-return-ghost" href={localUrl("/support")}>
+              <Headphones size={16} /> Get help
+            </a>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Real, non-optimistic status */}
+          <div className="booking-return-status" aria-live="polite">
+            <span className={`status-chip status-${label.toLowerCase()}`}>
+              {label === "Confirmed" ? (
+                <CheckCircle2 size={16} />
+              ) : label === "Cancelled" ? (
+                <Clock3 size={16} />
+              ) : (
+                <Clock3 size={16} />
+              )}
+              {loadState === "loading" ? "Checking status…" : bookingStatusHeadline(label, outcome)}
+            </span>
+            {serverStatus ? (
+              <small>Zivos Media reports: {serverStatus}</small>
+            ) : (
+              <small>Awaiting confirmation from Zivos Media</small>
+            )}
+            {canUseTravelApi() ? (
+              <button
+                type="button"
+                className="booking-return-refresh"
+                disabled={refreshing}
+                onClick={async () => {
+                  setRefreshing(true);
+                  await refreshServerStatus();
+                  setRefreshing(false);
+                }}
+              >
+                <Repeat2 size={15} /> {refreshing ? "Refreshing…" : "Check status"}
+              </button>
+            ) : null}
+          </div>
+
+          {/* Receipt */}
+          <div className="booking-return-card booking-receipt">
+            <div className="booking-receipt-head">
+              <span className="booking-receipt-icon">
+                <ReceiptText size={20} />
+              </span>
+              <div>
+                <h2>Receipt</h2>
+                <p>Reference {reference || record?.bookingReference || "—"}</p>
+              </div>
+            </div>
+
+            {record ? (
+              <>
+                <dl className="booking-receipt-itinerary">
+                  <div>
+                    <dt>
+                      <Bus size={15} /> Trip
+                    </dt>
+                    <dd>{record.resultTitle || record.resultId}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <BadgeCheck size={15} /> Operator
+                    </dt>
+                    <dd>{record.provider || "Zivo Travel"}</dd>
+                  </div>
+                </dl>
+                <div className="booking-receipt-lines">
+                  <div>
+                    <span>Subtotal</span>
+                    <strong>{money(currency, record.subtotal)}</strong>
+                  </div>
+                  <div>
+                    <span>Service fee</span>
+                    <strong>{money(currency, record.serviceFee)}</strong>
+                  </div>
+                  <div className="booking-receipt-total">
+                    <span>Total</span>
+                    <strong>{money(currency, record.total)}</strong>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="booking-receipt-empty">
+                The full receipt appears here once your booking draft is available on this device.
+              </p>
+            )}
+
+            <div className="booking-return-actions">
+              <a className="booking-return-cta" href={localUrl("/trips")}>
+                View My Trips <ArrowRight size={16} />
+              </a>
+              {outcome === "cancel" && record && isEngineCheckoutUrl(record.checkoutUrl) ? (
+                <a className="booking-return-ghost" href={record.checkoutUrl}>
+                  <CreditCard size={16} /> Resume checkout
+                </a>
+              ) : null}
+              <a className="booking-return-ghost" href={localUrl("/support")}>
+                <Headphones size={16} /> Get help
+              </a>
+            </div>
+            <p className="booking-receipt-foot">
+              Zivo Travel booking contract v{BOOKING_CONTRACT_VERSION} · Payment & refunds are
+              settled by Zivos Media.
+            </p>
+          </div>
+
+          {/* Cancellation / refund request */}
+          <div className="booking-return-card booking-cancel">
+            <h2>Need to cancel or request a refund?</h2>
+            {cancelRequest ? (
+              <div className="booking-cancel-done" role="status">
+                <CheckCircle2 size={18} />
+                <div>
+                  <strong>Request received ({cancelRequest.ticket.reference}).</strong>
+                  <p>
+                    Zivos Media reviews cancellation and refund requests — you&apos;ll be updated
+                    there. No refund has been issued yet; this only records your request.
+                  </p>
+                  <a className="booking-return-ghost" href={cancelRequest.ticket.chatUrl}>
+                    Open the request in chat <ArrowRight size={16} />
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={submitCancellationRequest} className="booking-cancel-form">
+                <label htmlFor="booking-cancel-reason">Reason for cancellation or refund</label>
+                <textarea
+                  id="booking-cancel-reason"
+                  value={cancelReason}
+                  onChange={(event) => setCancelReason(event.target.value)}
+                  maxLength={600}
+                  rows={3}
+                  placeholder="Tell Zivos Media why you need to cancel this bus booking…"
+                  aria-describedby={cancelError ? "booking-cancel-error" : undefined}
+                  aria-invalid={cancelError ? true : undefined}
+                />
+                {cancelError ? (
+                  <p id="booking-cancel-error" className="booking-cancel-error" role="alert">
+                    {cancelError}
+                  </p>
+                ) : null}
+                <button type="submit" className="booking-return-cta" disabled={cancelSubmitting}>
+                  {cancelSubmitting ? "Submitting…" : "Request cancellation / refund"}
+                </button>
+                <p className="booking-cancel-note">
+                  This records a request with Zivos Media. It does not cancel your card charge by
+                  itself — Zivos Media confirms any refund.
+                </p>
+              </form>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+// Fetch the authoritative current status for a booking reference from the Worker. Returns
+// a best-effort record + status; never throws (the return page degrades to local data).
+async function fetchServerBooking(
+  reference: string
+): Promise<{ status: string | null; record: SavedTrip | null }> {
+  try {
+    const params = new URLSearchParams({ reference });
+    const response = await fetch(`/api/travel/bookings?${params.toString()}`, {
+      headers: { accept: "application/json" }
+    });
+    if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
+      return { status: null, record: null };
+    }
+    const payload = (await response.json()) as { bookings?: Array<Record<string, unknown>> };
+    const row = Array.isArray(payload.bookings) ? payload.bookings[0] : null;
+    if (!row) return { status: null, record: null };
+    return { status: typeof row.status === "string" ? row.status : null, record: null };
+  } catch {
+    return { status: null, record: null };
+  }
+}
+
+function bookingStatusHeadline(
+  label: "Confirmed" | "Cancelled" | "Draft" | "Resume",
+  outcome: "success" | "cancel"
+): string {
+  if (label === "Confirmed") return "Booking confirmed by Zivos Media";
+  if (label === "Cancelled") return "Booking cancelled";
+  if (outcome === "cancel") return "Checkout not completed — draft saved";
+  return "Awaiting payment confirmation";
+}
+
+// Small hook factory so the "Check status" button can re-run the same reconcile the effect
+// runs on mount, without duplicating the fetch/label wiring.
+function useCallbackStatus(
+  reference: string,
+  setRecord: React.Dispatch<React.SetStateAction<SavedTrip | null>>,
+  setServerStatus: React.Dispatch<React.SetStateAction<string | null>>,
+  setLoadState: React.Dispatch<React.SetStateAction<ReturnLoadState>>
+) {
+  return async function refresh() {
+    if (!reference || !canUseTravelApi()) return;
+    const result = await fetchServerBooking(reference);
+    if (result.status) setServerStatus(result.status);
+    if (result.record) setRecord((prev) => prev || result.record);
+    setLoadState("loaded");
+  };
+}
+
 function App() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus | null>(null);
   const [savedTripCount, setSavedTripCount] = useState(() => readSavedTrips().length);
@@ -2063,6 +2457,7 @@ function App() {
   const opsRoute = isOpsRoute();
   const walletRoute = isWalletRoute();
   const supportRoute = isSupportRoute();
+  const bookingReturn = currentBookingReturn();
   const path = currentPath();
   const handoffSource = new URLSearchParams(window.location.search).get("source");
   const isConnectedHandoff = handoffSource === "zivosmedia" || handoffSource === "zivo-admin";
@@ -2466,7 +2861,9 @@ function App() {
       </header>
 
       <div id="travel-main" className="route-outlet" tabIndex={-1}>
-      {dealsRoute ? (
+      {bookingReturn ? (
+        <BookingReturnPage outcome={bookingReturn} backendStatus={backendStatus} />
+      ) : dealsRoute ? (
         <DealsPage backendStatus={backendStatus} />
       ) : tripsRoute ? (
         <TripsPage backendStatus={backendStatus} />
