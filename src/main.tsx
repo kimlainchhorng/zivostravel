@@ -42,7 +42,7 @@ import bridge from "../zivo-travel-bridge.json";
 import {
   BOOKING_CONTRACT_VERSION,
   customerBookingLabel,
-  type BookingStatus
+  mapToAuthorityBookingStatus
 } from "./contract/bookingContract";
 import "./styles.css";
 
@@ -2076,18 +2076,6 @@ function findSavedTripByReference(reference: string): SavedTrip | null {
   return readSavedTrips().find((trip) => trip.bookingReference === reference) || null;
 }
 
-// Map a Travel/authority status string onto the authority booking lifecycle used by the
-// shared contract. Anything that is not an explicit confirmed/cancelled/paid signal maps
-// to null, so customerBookingLabel() will NEVER render "Confirmed" from a mere handoff.
-function mapTravelStatusToAuthority(status: string | null | undefined): BookingStatus | null {
-  const value = (status || "").toLowerCase();
-  if (value === "confirmed" || value === "paid" || value === "captured") return "confirmed";
-  if (value === "cancelled" || value === "canceled" || value === "refunded" || value === "voided") {
-    return "cancelled";
-  }
-  return null;
-}
-
 type ReturnLoadState = "loading" | "loaded" | "not_found";
 
 function BookingReturnPage({
@@ -2145,7 +2133,7 @@ function BookingReturnPage({
     };
   }, [reference]);
 
-  const authorityStatus = mapTravelStatusToAuthority(serverStatus || record?.status);
+  const authorityStatus = mapToAuthorityBookingStatus(serverStatus || record?.status);
   const label = customerBookingLabel({ authorityStatus, intentPersisted: Boolean(record?.persisted) });
   const currency = record?.currency || "USD";
 

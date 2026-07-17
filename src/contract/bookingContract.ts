@@ -171,6 +171,29 @@ export function canTransitionPayment(from: PaymentStatus, to: PaymentStatus): bo
 }
 
 /**
+ * Map any Travel or authority status string onto the authority booking lifecycle. Only an
+ * explicit confirmed/paid/captured signal maps to "confirmed" and only an explicit
+ * cancellation/refund/void maps to "cancelled"; everything else (draft, pending_checkout,
+ * checkout_handoff, hold, unknown) maps to null — so callers can never render a confirmed
+ * booking from a mere checkout handoff.
+ */
+export function mapToAuthorityBookingStatus(
+  status: string | null | undefined,
+): BookingStatus | null {
+  const value = (status || "").trim().toLowerCase();
+  if (value === "confirmed" || value === "paid" || value === "captured") return "confirmed";
+  if (
+    value === "cancelled" ||
+    value === "canceled" ||
+    value === "refunded" ||
+    value === "voided"
+  ) {
+    return "cancelled";
+  }
+  return null;
+}
+
+/**
  * The customer-facing rule the SPA must obey: a booking is only "Confirmed" when the
  * authority reports status='confirmed'. A merely-persisted travel intent is a Draft, never
  * a confirmation (prevents optimistic-success mislabeling).

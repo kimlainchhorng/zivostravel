@@ -11,6 +11,7 @@ import {
   isTravelReference,
   isValidIdempotencyKey,
   isValidSeat,
+  mapToAuthorityBookingStatus,
   validateBusBookingContract,
   type BusBookingContract,
 } from "../src/contract/bookingContract";
@@ -105,6 +106,22 @@ test("payment state machine allows authorize→void and capture→refund, reject
   assert.ok(!canTransitionPayment("pending", "captured"), "cannot skip authorize");
   assert.ok(!canTransitionPayment("refunded", "captured"), "terminal");
   assert.ok(!canTransitionPayment("captured", "voided"), "captured refunds, not voids");
+});
+
+test("mapToAuthorityBookingStatus only confirms on an explicit success signal", () => {
+  assert.equal(mapToAuthorityBookingStatus("confirmed"), "confirmed");
+  assert.equal(mapToAuthorityBookingStatus("paid"), "confirmed");
+  assert.equal(mapToAuthorityBookingStatus("captured"), "confirmed");
+  assert.equal(mapToAuthorityBookingStatus("cancelled"), "cancelled");
+  assert.equal(mapToAuthorityBookingStatus("refunded"), "cancelled");
+  assert.equal(mapToAuthorityBookingStatus("voided"), "cancelled");
+  // The critical cases: a mere handoff/draft must NOT read as confirmed.
+  assert.equal(mapToAuthorityBookingStatus("pending_checkout"), null);
+  assert.equal(mapToAuthorityBookingStatus("checkout_handoff"), null);
+  assert.equal(mapToAuthorityBookingStatus("hold"), null);
+  assert.equal(mapToAuthorityBookingStatus(""), null);
+  assert.equal(mapToAuthorityBookingStatus(null), null);
+  assert.equal(mapToAuthorityBookingStatus(undefined), null);
 });
 
 test("customerBookingLabel never shows optimistic success", () => {
