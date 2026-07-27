@@ -7,6 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
+    "test": "tsx --test test/**/*.test.ts",
     "agent:deepseek": "node scripts/agents/deepseek-runner.mjs",
     "agent:mimo": "node scripts/agents/mimo-runner.mjs"
   },
@@ -20,6 +21,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^5.0.0",
     "playwright": "^1.60.0",
+    "tsx": "4.20.6",
     "typescript": "^5.7.2",
     "vite": "^6.0.1"
   }
