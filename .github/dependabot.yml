@@ -1,0 +1,39 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Phnom_Penh"
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    labels:
+      - "dependencies"
+    groups:
+      radix-ui:
+        patterns:
+          - "@radix-ui/*"
+      capacitor:
+        patterns:
+          - "@capacitor/*"
+      supabase:
+        patterns:
+          - "@supabase/*"
+      stripe:
+        patterns:
+          - "@stripe/*"
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+
