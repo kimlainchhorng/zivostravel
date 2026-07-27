@@ -1735,8 +1735,30 @@ function normalizeSupportTicket(value: unknown): SupportTicket | null {
     summary: ticket.summary,
     customer: ticket.customer || defaultTravelerDetails.name,
     bookingReference: ticket.bookingReference,
-    chatUrl: ticket.chatUrl || supportChatUrl(ticket.reference),
+    chatUrl: supportChatUrl(ticket.reference),
     createdAt: ticket.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizeSupportTicketResponse(value: unknown): SupportTicketResponse | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const response = value as Partial<SupportTicketResponse>;
+  const ticket = normalizeSupportTicket(response.ticket);
+
+  if (!ticket || typeof response.mode !== "string") {
+    return null;
+  }
+
+  return {
+    app: typeof response.app === "string" ? response.app : "zivo-travel",
+    mode: response.mode,
+    persisted: Boolean(response.persisted),
+    reason: typeof response.reason === "string" ? response.reason : undefined,
+    ticket,
+    checkedAt: typeof response.checkedAt === "string" ? validTimestamp(response.checkedAt) : undefined
   };
 }
 
@@ -1772,9 +1794,10 @@ function writeSupportTickets(tickets: SupportTicket[]) {
 
 function saveSupportTicket(response: SupportTicketResponse) {
   const current = readSupportTickets().filter((ticket) => ticket.reference !== response.ticket.reference);
-  writeSupportTickets([response.ticket, ...current]);
+  const ticket = normalizeSupportTicket(response.ticket) || response.ticket;
+  writeSupportTickets([ticket, ...current]);
 
-  return response.ticket;
+  return ticket;
 }
 
 function fallbackAdminQueue(): AdminQueuePayload {
@@ -2173,7 +2196,10 @@ function BookingReturnPage({
       if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) {
         throw new Error("Support bridge unavailable");
       }
-      const ticket = (await response.json()) as SupportTicketResponse;
+      const ticket = normalizeSupportTicketResponse(await response.json());
+      if (!ticket) {
+        throw new Error("Invalid support response");
+      }
       saveSupportTicket(ticket);
       setCancelRequest(ticket);
     } catch {
@@ -4158,7 +4184,10 @@ function SupportPage({ backendStatus }: { backendStatus: BackendStatus | null })
         throw new Error("Support bridge unavailable");
       }
 
-      const ticketResponse = await response.json() as SupportTicketResponse;
+      const ticketResponse = normalizeSupportTicketResponse(await response.json());
+      if (!ticketResponse) {
+        throw new Error("Invalid support response");
+      }
       saveSupportTicket(ticketResponse);
       setLastResponse(ticketResponse);
       setTickets(readSupportTickets());
