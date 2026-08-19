@@ -1,0 +1,51 @@
+# This repo had no workflows at all — only dependabot.yml. Every pull request,
+# including the ones dependabot opens, showed zero checks, and a PR with zero
+# checks reads exactly like a PR that passed. Six dependabot PRs were verified
+# by hand in August because nothing else could.
+#
+# Nothing here is new tooling: `npm test` (13 tests) and `npm run build`
+# (tsc --noEmit && vite build) both already pass locally. They just never ran
+# anywhere but on someone's laptop.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A superseded run tells you nothing, and its result is easy to mistake for the
+# current one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          # package.json declares >=22.13.0.
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        # --ignore-scripts: a pull request must not be able to run arbitrary
+        # lifecycle scripts on a runner just by adding a dependency.
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Tests
+        run: npm test
+
+      # Type errors and build failures are the class dependabot bumps actually
+      # cause, so this is the step that earns its place on those PRs.
+      - name: Type-check and build
+        run: npm run build
